@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#b91c1c">
+<title>Diwali Shop Ledger</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root{--bg:#fff8ee;--card:#fff;--ink:#2b1a12;--mute:#7a6a5f;--red:#b91c1c;--gold:#f59e0b;--green:#15803d;--line:#efe3d3}
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:84px}
+  header{background:var(--red);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+  header h1{font-size:18px;margin:0}
+  header button{background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:8px;padding:6px 10px;font-size:14px}
+  main{max-width:640px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  .card h2{font-size:15px;margin:0 0 10px;color:var(--mute);font-weight:600}
+  .big{font-size:30px;font-weight:700}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .red{color:var(--red)}.green{color:var(--green)}.mute{color:var(--mute)}
+  label{display:block;font-size:13px;color:var(--mute);margin:8px 0 3px}
+  input,select{width:100%;padding:11px;border:1px solid #dccfbe;border-radius:10px;font-size:16px;background:#fff;color:var(--ink)}
+  .btn{width:100%;margin-top:12px;padding:13px;border:0;border-radius:10px;background:var(--red);color:#fff;font-size:16px;font-weight:600}
+  .btn.gold{background:var(--gold);color:#2b1a12}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+  .row:first-of-type{border-top:0}
+  .row .l{min-width:0}.row .l b{display:block;overflow-wrap:anywhere}
+  .row small{color:var(--mute)}
+  .row .r{text-align:right;white-space:nowrap}
+  .del{background:none;border:0;color:#b9a99a;font-size:18px;padding:4px 8px}
+  .bar{height:8px;border-radius:4px;background:var(--line);margin-top:4px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--gold)}
+  nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+  nav button{flex:1;background:none;border:0;padding:12px 4px;font-size:13px;color:var(--mute)}
+  nav button b{display:block;font-size:20px;font-weight:400}
+  nav button.on{color:var(--red);font-weight:700}
+  .login{max-width:360px;margin:12vh auto;padding:0 16px;text-align:center}
+  .login h1{color:var(--red)}
+  .err{color:var(--red);font-size:14px;min-height:20px;margin-top:8px}
+  .demo{background:#fef3c7;color:#92400e;font-size:12px;text-align:center;padding:4px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* Public connection details (the anon key is safe to expose; the database only answers to logged-in partners) */
+const SUPABASE_URL = "https://kkuzwlquzuhfzenlfigv.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrdXp3bHF1enVoZnplbmxmaWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxOTgwODEsImV4cCI6MjEwODc3NDA4MX0.TvfB27hzbYUIJVbnMc0VIXn3mPjEmMTQBKtMSc_cEXI";
+
+const USERS = ['ajay','mahesh','babu','shiva','anil','sashi'];
+const DOMAIN = '@diwali-shop.app';
+const CATS = ['Goods / Stock','Transport','Permissions','Guide / Agent','Shop setup','Labour','Food & Misc','Other'];
+const DEMO = SUPABASE_URL.includes('PASTE');
+
+const cap = s => s[0].toUpperCase() + s.slice(1);
+const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today = () => new Date().toISOString().slice(0,10);
+const fmtDate = d => new Date(d + 'T00:00').toLocaleDateString('en-IN', {day:'numeric', month:'short'});
+
+/* ---------- data layer: Supabase, or localStorage demo when no config ---------- */
+let store;
+if (!DEMO) {
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  let reload = async () => {};
+  const must = ({error}) => { if (error) throw error; };
+  store = {
+    login: async (u, p) => must(await sb.auth.signInWithPassword({email: u + DOMAIN, password: p})),
+    logout: () => sb.auth.signOut(),
+    onAuth: cb => sb.auth.onAuthStateChange((_e, s) => cb(s ? s.user.email.split('@')[0] : null)),
+    subscribe: cb => {
+      reload = async () => {
+        const {data} = await sb.from('entries').select('*')
+          .order('date', {ascending: false}).order('created', {ascending: false});
+        cb((data || []).map(r => ({...r, amount: Number(r.amount), addedBy: r.added_by})));
+      };
+      reload();
+      const ch = sb.channel('entries-live')
+        .on('postgres_changes', {event: '*', schema: 'public', table: 'entries'}, () => reload())
+        .subscribe();
+      return () => sb.removeChannel(ch);
+    },
+    add: async e => {
+      const {addedBy, ...row} = e;
+      must(await sb.from('entries').insert({...row, added_by: addedBy}));
+      reload();
+    },
+    remove: async id => { must(await sb.from('entries').delete().eq('id', id)); reload(); }
+  };
+} else {
+  let cbAuth, cbData;
+  const load = () => JSON.parse(localStorage.getItem('demo_entries') || '[]');
+  const save = l => { localStorage.setItem('demo_entries', JSON.stringify(l)); cbData && cbData(l.slice().sort((a,b)=>b.date.localeCompare(a.date))); };
+  store = {
+    login: async (u) => { localStorage.setItem('demo_user', u); cbAuth(u); },
+    logout: async () => { localStorage.removeItem('demo_user'); cbAuth(null); },
+    onAuth: cb => { cbAuth = cb; cb(localStorage.getItem('demo_user')); },
+    subscribe: cb => { cbData = cb; save(load()); return () => {}; },
+    add: async e => save([...load(), {...e, id: String(Date.now()), created: Date.now()}]),
+    remove: async id => save(load().filter(x => x.id !== id))
+  };
+}
+
+/* ---------- state + rendering ---------- */
+let me = null, entries = [], tab = 'summary', unsub = null, started = false;
+const app = document.getElementById('app');
+
+store.onAuth(u => {
+  if (started && u === me) return; // ignore token-refresh repeats
+  started = true;
+  me = u;
+  if (unsub) { unsub(); unsub = null; }
+  if (u) unsub = store.subscribe(list => { entries = list; render(); });
+  render();
+});
+
+function render() { me ? renderMain() : renderLogin(); }
+
+function renderLogin() {
+  const last = localStorage.getItem('last_user') || USERS[0];
+  app.innerHTML = `${DEMO ? '<div class="demo">DEMO MODE – data stays on this phone only. Add Firebase config to share.</div>' : ''}
+  <div class="login">
+    <h1>🪔 Diwali Shop Ledger</h1>
+    <p class="mute">Crackers retail – our shared accounts</p>
+    <div class="card">
+      <label>Who are you?</label>
+      <select id="u">${USERS.map(u => `<option value="${u}" ${u===last?'selected':''}>${cap(u)}</option>`).join('')}</select>
+      <label>Password</label>
+      <input id="p" type="password" autocomplete="current-password">
+      <button class="btn" id="go">Login</button>
+      <div class="err" id="err"></div>
+    </div>
+  </div>`;
+  const go = async () => {
+    const u = document.getElementById('u').value, p = document.getElementById('p').value;
+    document.getElementById('err').textContent = '';
+    try { localStorage.setItem('last_user', u); await store.login(u, p); }
+    catch (e) { document.getElementById('err').textContent = 'Wrong password or login failed'; }
+  };
+  document.getElementById('go').onclick = go;
+  document.getElementById('p').onkeydown = e => e.key === 'Enter' && go();
+}
+
+function totals() {
+  const exp = entries.filter(e => e.type === 'expense'), sal = entries.filter(e => e.type === 'sale');
+  const sum = l => l.reduce((a, e) => a + e.amount, 0);
+  const spent = sum(exp), sold = sum(sal);
+  const paid = Object.fromEntries(USERS.map(u => [u, sum(exp.filter(e => e.person === u))]));
+  const cats = CATS.map(c => [c, sum(exp.filter(e => e.category === c))]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
+  return {exp, sal, spent, sold, paid, cats};
+}
+
+function renderMain() {
+  const t = totals();
+  let body = '';
+  if (tab === 'summary') body = summaryView(t);
+  if (tab === 'expense') body = formView('expense') + listView(t.exp, 'expense');
+  if (tab === 'sale') body = formView('sale') + listView(t.sal, 'sale');
+
+  const tabs = [['summary','📊','Summary'],['expense','💸','Expenses'],['sale','🧨','Sales']];
+  app.innerHTML = `${DEMO ? '<div class="demo">DEMO MODE – data stays on this phone only</div>' : ''}
+  <header><h1>🪔 Diwali Shop Ledger</h1><button id="out">${cap(me)} · Logout</button></header>
+  <main>${body}</main>
+  <nav>${tabs.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k?'on':''}"><b>${i}</b>${n}</button>`).join('')}</nav>`;
+
+  document.getElementById('out').onclick = () => store.logout();
+  app.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); window.scrollTo(0,0); });
+  const f = document.getElementById('f');
+  if (f) f.onsubmit = submit;
+  app.querySelectorAll('.del').forEach(b => b.onclick = () => {
+    if (confirm('Delete this entry?')) store.remove(b.dataset.id);
+  });
+}
+
+function summaryView(t) {
+  const profit = t.sold - t.spent, share = t.spent / USERS.length;
+  const maxCat = t.cats.length ? t.cats[0][1] : 1;
+  return `
+  <div class="grid">
+    <div class="card"><h2>Spent till now</h2><div class="big red">${inr(t.spent)}</div></div>
+    <div class="card"><h2>Sold till now</h2><div class="big green">${inr(t.sold)}</div></div>
+  </div>
+  <div class="card"><h2>${profit >= 0 ? 'Profit so far' : 'Still to recover'}</h2>
+    <div class="big ${profit >= 0 ? 'green' : 'red'}">${inr(Math.abs(profit))}</div>
+    <small class="mute">Sales − Expenses</small></div>
+
+  <div class="card"><h2>Spent by category</h2>
+    ${t.cats.length ? t.cats.map(([c, v]) => `<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span>${esc(c)}</span><b>${inr(v)}</b></div><div class="bar"><i style="width:${v/maxCat*100}%"></i></div></div>`).join('') : '<span class="mute">No expenses yet</span>'}
+  </div>
+
+  <div class="card"><h2>Who paid what (equal share ${inr(share)} each)</h2>
+    ${USERS.map(u => { const bal = t.paid[u] - share; return `<div class="row"><div class="l"><b>${cap(u)}</b><small>paid ${inr(t.paid[u])}</small></div>
+      <div class="r ${bal >= 0 ? 'green' : 'red'}">${bal >= 0 ? 'gets back' : 'owes'} <b>${inr(Math.abs(bal))}</b></div></div>`; }).join('')}
+    <small class="mute">Settle this before sharing profit.</small>
+  </div>`;
+}
+
+function formView(type) {
+  const isE = type === 'expense';
+  return `<form id="f" class="card" data-type="${type}">
+    <h2>${isE ? 'Add expense' : 'Add sale'}</h2>
+    <label>Amount (₹)</label><input name="amount" type="number" inputmode="numeric" min="1" required>
+    ${isE ? `<label>Category</label><select name="category">${CATS.map(c => `<option>${c}</option>`).join('')}</select>` : ''}
+    <label>${isE ? 'What for? (note)' : 'Note (optional, e.g. day 1 counter)'}</label><input name="note" ${isE ? 'required' : ''} maxlength="100" placeholder="${isE ? 'e.g. Fireworks from Shiva, Kasi' : ''}">
+    <label>${isE ? 'Paid by' : 'Collected by'}</label><select name="person">${USERS.map(u => `<option value="${u}" ${u===me?'selected':''}>${cap(u)}</option>`).join('')}</select>
+    <label>Date</label><input name="date" type="date" value="${today()}" required>
+    <button class="btn ${isE ? '' : 'gold'}">${isE ? 'Save expense' : 'Save sale'}</button>
+  </form>`;
+}
+
+function listView(list, type) {
+  const total = list.reduce((a, e) => a + e.amount, 0);
+  return `<div class="card"><h2>${list.length} entries · ${inr(total)}</h2>
+    ${list.length ? list.map(e => `<div class="row">
+      <div class="l"><b>${esc(e.note) || (type === 'sale' ? 'Sale' : '')}</b>
+        <small>${fmtDate(e.date)} · ${cap(e.person)}${e.category ? ' · ' + esc(e.category) : ''}${e.addedBy && e.addedBy !== e.person ? ' · added by ' + cap(e.addedBy) : ''}</small></div>
+      <div class="r"><b class="${type === 'sale' ? 'green' : 'red'}">${inr(e.amount)}</b><button class="del" data-id="${e.id}" aria-label="Delete">✕</button></div>
+    </div>`).join('') : '<span class="mute">Nothing yet</span>'}</div>`;
+}
+
+async function submit(ev) {
+  ev.preventDefault();
+  const f = ev.target, d = new FormData(f), type = f.dataset.type;
+  const entry = {type, amount: Number(d.get('amount')), note: d.get('note').trim(), person: d.get('person'), date: d.get('date'), addedBy: me};
+  if (type === 'expense') entry.category = d.get('category');
+  if (!(entry.amount > 0)) return;
+  f.querySelector('button').disabled = true;
+  try { await store.add(entry); } catch (e) { alert('Could not save: ' + e.message); }
+}
+</script>
+</body>
+</html>

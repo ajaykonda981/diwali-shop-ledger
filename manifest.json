@@ -1,0 +1,9 @@
+{
+  "name": "Diwali Shop Ledger",
+  "short_name": "Shop Ledger",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fff8ee",
+  "theme_color": "#b91c1c",
+  "icons": [{"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}
