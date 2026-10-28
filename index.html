@@ -131,7 +131,10 @@ function renderLogin() {
       <label>Who are you?</label>
       <select id="u">${USERS.map(u => `<option value="${u}" ${u===last?'selected':''}>${cap(u)}</option>`).join('')}</select>
       <label>Password</label>
-      <input id="p" type="password" autocomplete="current-password">
+      <div style="position:relative">
+        <input id="p" type="password" autocomplete="current-password" style="padding-right:64px">
+        <button type="button" id="eye" style="position:absolute;right:6px;top:6px;bottom:6px;border:0;border-radius:8px;background:#f3e8d6;color:#2b1a12;padding:0 10px;font-size:14px">Show</button>
+      </div>
       <button class="btn" id="go">Login</button>
       <div class="err" id="err"></div>
     </div>
@@ -141,6 +144,11 @@ function renderLogin() {
     document.getElementById('err').textContent = '';
     try { localStorage.setItem('last_user', u); await store.login(u, p); }
     catch (e) { document.getElementById('err').textContent = 'Wrong password or login failed'; }
+  };
+  document.getElementById('eye').onclick = () => {
+    const p = document.getElementById('p'), show = p.type === 'password';
+    p.type = show ? 'text' : 'password';
+    document.getElementById('eye').textContent = show ? 'Hide' : 'Show';
   };
   document.getElementById('go').onclick = go;
   document.getElementById('p').onkeydown = e => e.key === 'Enter' && go();
