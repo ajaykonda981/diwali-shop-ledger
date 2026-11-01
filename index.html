@@ -62,6 +62,9 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 const USERS = ['ajay','mahesh','babu','shiva','anil','sashi'];
 const DOMAIN = '@diwali-shop.app';
+// Partners who keep a lump-sum advance with another partner instead of paying each time (Babu is remote).
+// Their share of every expense comes out of that advance, so nobody else pays or collects from them.
+const ADVANCE_WITH = {babu: 'shiva'};
 const CATS = ['Goods / Stock','Transport','Permissions','Guide / Agent','Shop setup','Labour','Food & Misc','Other'];
 const DEMO = SUPABASE_URL.includes('PASTE');
 
@@ -185,8 +188,16 @@ function totals() {
 }
 
 // Fewest payments: biggest debtor pays biggest creditor, repeat.
+// An advance partner's balance is carried by the holder, then shown as its own advance / top-up leg.
 function settlePlan(bal) {
-  const pick = sign => USERS.map(u => ({u, v: sign * bal[u]})).filter(x => x.v >= 1).sort((a, b) => b.v - a.v);
+  const eff = {...bal}, extra = [];
+  for (const [u, h] of Object.entries(ADVANCE_WITH)) {
+    eff[h] += eff[u]; eff[u] = 0;
+    const v = Math.round(bal[u]);
+    if (v >= 1) extra.push({from: h, to: u, amount: v, advance: true});
+    if (v <= -1) extra.push({from: u, to: h, amount: -v});
+  }
+  const pick = sign => USERS.map(u => ({u, v: sign * eff[u]})).filter(x => x.v >= 1).sort((a, b) => b.v - a.v);
   const debt = pick(-1), cred = pick(1), plan = [];
   let i = 0, j = 0;
   while (i < debt.length && j < cred.length) {
@@ -196,7 +207,13 @@ function settlePlan(bal) {
     if (debt[i].v < 1) i++;
     if (cred[j].v < 1) j++;
   }
-  return plan;
+  return plan.concat(extra);
+}
+
+// How one settlement leg reads from partner u's point of view.
+function legText(p, u) {
+  if (p.advance) return [u === p.to ? `Advance left with ${cap(p.from)}` : `Holding ${cap(p.to)}'s advance`, 'mute'];
+  return u === p.from ? [`Pay ${cap(p.to)}`, 'red'] : [`Get from ${cap(p.from)}`, 'green'];
 }
 
 function renderMain() {
@@ -234,17 +251,40 @@ function renderMain() {
   });
 }
 
-const statusText = v => Math.abs(v) < 1 ? ['All settled', 'mute'] : v > 0 ? ['Gets back ' + inr(v), 'green'] : ['Has to pay ' + inr(-v), 'red'];
+const statusText = (v, u) => Math.abs(v) < 1 ? ['All settled', 'mute']
+  : v > 0 ? [(ADVANCE_WITH[u] ? `Advance left with ${cap(ADVANCE_WITH[u])} ` : 'Gets back ') + inr(v), 'green']
+  : ['Has to pay ' + inr(-v), 'red'];
+
+// Main-page box for each advance partner: what they put in, their share so far, what is left.
+function advanceCards(t) {
+  return Object.entries(ADVANCE_WITH).map(([u, h]) => {
+    const v = t.bal[u], n = USERS.length;
+    const line = (label, amt, sign) => amt >= 1 ? `<div class="line"><span>${label}</span><b>${sign} ${inr(amt)}</b></div>` : '';
+    const toHolder = t.tr.filter(e => e.person === u && e.to_person === h).reduce((a, e) => a + e.amount, 0);
+    return `<div class="card" style="border-left:5px solid var(--green)"><h2>🏦 ${cap(u)}'s advance with ${cap(h)}</h2>
+      ${line(`${cap(u)} gave ${cap(h)} in advance`, toHolder, '+')}
+      ${line(`${cap(u)} gave other partners`, t.given[u] - toHolder, '+')}
+      ${line(`Expenses ${cap(u)} paid directly`, t.paid[u], '+')}
+      ${line(`${cap(u)}'s 1/${n} share of all expenses (${inr(t.spent)})`, t.spent / n, '−')}
+      ${line(`${cap(u)}'s 1/${n} share of sales (${inr(t.sold)})`, t.sold / n, '+')}
+      ${line('Sales cash with ' + cap(u), t.collected[u], '−')}
+      ${line('Received from partners', t.received[u], '−')}
+      <div class="line total"><span>${v >= 0 ? `Left with ${cap(h)}` : `${cap(u)} to top up ${cap(h)}`}</span><span class="${v >= 0 ? 'green' : 'red'}">${inr(Math.abs(v))}</span></div>
+      <small class="mute">${cap(u)}'s share of every expense is taken from this advance. Nobody collects money from ${cap(u)} and nobody pays ${cap(u)}. ${cap(h)} keeps the balance.</small>
+    </div>`;
+  }).join('');
+}
 
 function summaryView(t) {
   const profit = t.sold - t.spent;
   const maxCat = t.cats.length ? t.cats[0][1] : 1;
-  const [myText, myCls] = statusText(t.bal[me]);
+  const [myText, myCls] = statusText(t.bal[me], me);
   const mine = t.plan.filter(p => p.from === me || p.to === me);
   return `
+  ${advanceCards(t)}
   <div class="card you tap" data-p="${me}"><h2>Your account, ${cap(me)}</h2>
     <div class="big ${myCls}">${myText}</div>
-    ${mine.map(p => `<div>${p.from === me ? `Pay <b>${inr(p.amount)}</b> to <b>${cap(p.to)}</b>` : `Get <b>${inr(p.amount)}</b> from <b>${cap(p.from)}</b>`}</div>`).join('')}
+    ${mine.map(p => { const [txt] = legText(p, me); return `<div>${txt}: <b>${inr(p.amount)}</b></div>`; }).join('')}
     ${t.received[me] ? `<small class="mute">Already received ${inr(t.received[me])} from partners – counted.</small>` : ''}
     <div class="mute" style="margin-top:6px;font-size:13px">Tap for every transaction ›</div>
   </div>
@@ -260,7 +300,7 @@ function summaryView(t) {
   ${planCard(t)}
 
   <div class="card"><h2>Partners (tap a name)</h2>
-    ${USERS.map(u => { const [txt, cls] = statusText(t.bal[u]); return `<div class="row tap" data-p="${u}"><div class="l"><b>${cap(u)}</b><small>paid ${inr(t.paid[u])}${t.given[u] ? ' · gave ' + inr(t.given[u]) : ''}${t.received[u] ? ' · received ' + inr(t.received[u]) : ''}</small></div>
+    ${USERS.map(u => { const [txt, cls] = statusText(t.bal[u], u); return `<div class="row tap" data-p="${u}"><div class="l"><b>${cap(u)}</b><small>paid ${inr(t.paid[u])}${t.given[u] ? ' · gave ' + inr(t.given[u]) : ''}${t.received[u] ? ' · received ' + inr(t.received[u]) : ''}</small></div>
       <div class="r ${cls}"><b>${txt}</b></div></div>`; }).join('')}
   </div>
 
@@ -271,10 +311,13 @@ function summaryView(t) {
 
 function planCard(t) {
   return `<div class="card"><h2>Who pays whom</h2>
-    ${t.plan.length ? t.plan.map(p => `<div class="row"><div class="l"><b>${cap(p.from)} → ${cap(p.to)}</b><small>${cap(p.from)} pays ${cap(p.to)}</small></div>
+    ${t.plan.length ? t.plan.map(p => p.advance
+      ? `<div class="row"><div class="l"><b>${cap(p.to)}'s advance left with ${cap(p.from)}</b><small>No payment needed – ${cap(p.from)} keeps it for ${cap(p.to)}'s future share</small></div>
+      <div class="r"><b class="green">${inr(p.amount)}</b></div></div>`
+      : `<div class="row"><div class="l"><b>${cap(p.from)} → ${cap(p.to)}</b><small>${cap(p.from)} pays ${cap(p.to)}</small></div>
       <div class="r"><b>${inr(p.amount)}</b><button class="mini paid" data-from="${p.from}" data-to="${p.to}" data-amount="${p.amount}">Paid ✓</button></div></div>`).join('')
       : '<span class="mute">Everyone is settled 🎉</span>'}
-    <small class="mute">Counts expenses paid, sales cash collected and money already given between partners. Tap "Paid ✓" once the money is handed over.</small>
+    <small class="mute">Counts expenses paid, sales cash collected and money already given between partners. ${Object.keys(ADVANCE_WITH).map(cap).join(', ')}'s share comes from the advance, so nobody pays or collects from ${Object.keys(ADVANCE_WITH).map(cap).join(', ')}. Tap "Paid ✓" once the money is handed over.</small>
   </div>`;
 }
 
@@ -319,7 +362,9 @@ function statementRows(u) {
     } else if (e.type === 'transfer' && (e.person === u || e.to_person === u)) {
       const gave = e.person === u;
       rows.push({e, icon: '💵', title: `${who} gave ${cap(e.to_person)} ${inr(e.amount)}`,
-        detail: (gave ? `Counts as ${cap(u)} paying in` : `${cap(u)} already has this money`) + (e.note ? ` · ${esc(e.note)}` : ''),
+        detail: (ADVANCE_WITH[e.person] === e.to_person
+          ? (gave ? `Advance kept with ${cap(e.to_person)} – ${cap(u)}'s shares come out of it` : `${cap(u)} holds this as ${who}'s advance`)
+          : gave ? `Counts as ${cap(u)} paying in` : `${cap(u)} already has this money`) + (e.note ? ` · ${esc(e.note)}` : ''),
         effect: gave ? e.amount : -e.amount});
     }
   }
@@ -329,7 +374,7 @@ function statementRows(u) {
 }
 
 function statementView(t, u) {
-  const [txt, cls] = statusText(t.bal[u]);
+  const [txt, cls] = statusText(t.bal[u], u);
   const legs = t.plan.filter(p => p.from === u || p.to === u);
   const rows = statementRows(u);
   const sign = v => (v >= 0 ? '+ ' : '− ') + inr(Math.abs(v));
@@ -342,8 +387,8 @@ function statementView(t, u) {
 
   <div class="card ${u === me ? 'you' : ''}"><h2>${cap(u)} – final position</h2>
     <div class="big ${cls}">${txt}</div>
-    ${legs.map(p => `<div class="row"><div class="l"><b>${p.from === u ? `Pay ${cap(p.to)}` : `Get from ${cap(p.from)}`}</b></div>
-      <div class="r"><b class="${p.from === u ? 'red' : 'green'}">${inr(p.amount)}</b></div></div>`).join('')}
+    ${legs.map(p => { const [lt, lc] = legText(p, u); return `<div class="row"><div class="l"><b>${lt}</b></div>
+      <div class="r"><b class="${lc === 'mute' ? 'green' : lc}">${inr(p.amount)}</b></div></div>`; }).join('')}
   </div>
 
   <div class="card"><h2>Short summary</h2>
@@ -367,12 +412,13 @@ function statementView(t, u) {
 
 // Shown on the Summary so nobody forgets money that already changed hands.
 function givenNotice(t) {
-  if (!t.tr.length) return '';
-  const shown = t.tr.slice(0, 5);
+  const others = t.tr.filter(e => ADVANCE_WITH[e.person] !== e.to_person); // advances have their own box
+  if (!others.length) return '';
+  const shown = others.slice(0, 5);
   return `<div class="card" style="border-left:5px solid var(--green)"><h2>💵 Money already given between partners</h2>
     ${shown.map(e => `<div class="row"><div class="l"><b>${cap(e.person)} gave ${cap(e.to_person)} ${inr(e.amount)}</b>
       <small>${fmtDate(e.date)}${e.note ? ' · ' + esc(e.note) : ''}. Already counted: ${cap(e.person)} has paid in ${inr(e.amount)}, and ${cap(e.to_person)} gets ${inr(e.amount)} less from the others. Nobody pays this again.</small></div></div>`).join('')}
-    ${t.tr.length > shown.length ? `<small class="mute">+${t.tr.length - shown.length} more in the Settle tab</small>` : ''}
+    ${others.length > shown.length ? `<small class="mute">+${others.length - shown.length} more in the Settle tab</small>` : ''}
   </div>`;
 }
 
