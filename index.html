@@ -115,7 +115,7 @@ if (!DEMO) {
 }
 
 /* ---------- state + rendering ---------- */
-let me = null, entries = [], tab = 'summary', person = null, unsub = null, started = false;
+let me = null, entries = [], tab = 'summary', person = null, histFor = 'all', unsub = null, started = false;
 const app = document.getElementById('app');
 
 store.onAuth(u => {
@@ -206,7 +206,7 @@ function renderMain() {
   else if (tab === 'summary') body = summaryView(t);
   else if (tab === 'expense') body = formView('expense') + listView(t.exp, 'expense');
   else if (tab === 'sale') body = formView('sale') + listView(t.sal, 'sale');
-  else if (tab === 'settle') body = planCard(t) + formView('transfer') + listView(t.tr, 'transfer');
+  else if (tab === 'settle') body = planCard(t) + historyCard(t) + formView('transfer');
 
   const tabs = [['summary','📊','Summary'],['expense','💸','Expenses'],['sale','🧨','Sales'],['settle','🤝','Settle']];
   app.innerHTML = `${DEMO ? '<div class="demo">DEMO MODE – data stays on this phone only</div>' : ''}
@@ -219,6 +219,8 @@ function renderMain() {
   app.querySelectorAll('[data-p]').forEach(r => r.onclick = () => { person = r.dataset.p; render(); window.scrollTo(0,0); });
   const back = document.getElementById('back');
   if (back) back.onclick = () => { person = null; render(); };
+  const hist = document.getElementById('hist');
+  if (hist) hist.onchange = () => { histFor = hist.value; render(); };
   const f = document.getElementById('f');
   if (f) f.onsubmit = submit;
   app.querySelectorAll('.del').forEach(b => b.onclick = () => {
@@ -272,6 +274,24 @@ function planCard(t) {
       <div class="r"><b>${inr(p.amount)}</b><button class="mini paid" data-from="${p.from}" data-to="${p.to}" data-amount="${p.amount}">Paid ✓</button></div></div>`).join('')
       : '<span class="mute">Everyone is settled 🎉</span>'}
     <small class="mute">Counts expenses paid, sales cash collected and money already given between partners. Tap "Paid ✓" once the money is handed over.</small>
+  </div>`;
+}
+
+// Track record of every payment between partners (settlements + money given for the shop).
+function historyCard(t) {
+  const list = histFor === 'all' ? t.tr : t.tr.filter(e => e.person === histFor || e.to_person === histFor);
+  const total = list.reduce((a, e) => a + e.amount, 0);
+  return `<div class="card"><h2>Payment history – who paid whom</h2>
+    <select id="hist" style="margin-bottom:8px">
+      <option value="all">Everyone</option>
+      ${USERS.map(u => `<option value="${u}" ${u===histFor?'selected':''}>${cap(u)}</option>`).join('')}
+    </select>
+    ${list.length ? list.map(e => `<div class="row">
+      <div class="l"><b>${cap(e.person)} paid ${cap(e.to_person)}</b>
+        <small>${fmtDate(e.date)} · ${esc(e.note) || 'Given'}${e.addedBy ? ' · recorded by ' + cap(e.addedBy) : ''}</small></div>
+      <div class="r"><b>${inr(e.amount)}</b><button class="del" data-id="${e.id}" aria-label="Delete">✕</button></div>
+    </div>`).join('') : '<span class="mute">No payments recorded yet</span>'}
+    ${list.length ? `<div class="line total"><span>${list.length} payment${list.length > 1 ? 's' : ''}</span><span>${inr(total)}</span></div>` : ''}
   </div>`;
 }
 
