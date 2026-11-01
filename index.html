@@ -115,7 +115,7 @@ if (!DEMO) {
 }
 
 /* ---------- state + rendering ---------- */
-let me = null, entries = [], tab = 'summary', person = null, histFor = 'all', unsub = null, started = false;
+let me = null, entries = [], tab = 'summary', stmtFor = null, histFor = 'all', unsub = null, started = false;
 const app = document.getElementById('app');
 
 store.onAuth(u => {
@@ -202,23 +202,23 @@ function settlePlan(bal) {
 function renderMain() {
   const t = totals();
   let body = '';
-  if (person) body = personView(t, person);
-  else if (tab === 'summary') body = summaryView(t);
+  if (tab === 'summary') body = summaryView(t);
   else if (tab === 'expense') body = formView('expense') + listView(t.exp, 'expense');
   else if (tab === 'sale') body = formView('sale') + listView(t.sal, 'sale');
   else if (tab === 'settle') body = planCard(t) + historyCard(t) + formView('transfer');
+  else if (tab === 'statement') body = statementView(t, stmtFor || me);
 
-  const tabs = [['summary','📊','Summary'],['expense','💸','Expenses'],['sale','🧨','Sales'],['settle','🤝','Settle']];
+  const tabs = [['summary','📊','Summary'],['expense','💸','Expenses'],['sale','🧨','Sales'],['settle','🤝','Settle'],['statement','📒','Statement']];
   app.innerHTML = `${DEMO ? '<div class="demo">DEMO MODE – data stays on this phone only</div>' : ''}
   <header><h1>🪔 Diwali Shop Ledger</h1><button id="out">${cap(me)} · Logout</button></header>
   <main>${body}</main>
-  <nav>${tabs.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k && !person?'on':''}"><b>${i}</b>${n}</button>`).join('')}</nav>`;
+  <nav>${tabs.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k?'on':''}"><b>${i}</b>${n}</button>`).join('')}</nav>`;
 
   document.getElementById('out').onclick = () => store.logout();
-  app.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.t; person = null; render(); window.scrollTo(0,0); });
-  app.querySelectorAll('[data-p]').forEach(r => r.onclick = () => { person = r.dataset.p; render(); window.scrollTo(0,0); });
-  const back = document.getElementById('back');
-  if (back) back.onclick = () => { person = null; render(); };
+  app.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.t; stmtFor = null; render(); window.scrollTo(0,0); });
+  app.querySelectorAll('[data-p]').forEach(r => r.onclick = () => { tab = 'statement'; stmtFor = r.dataset.p; render(); window.scrollTo(0,0); });
+  const stmt = document.getElementById('stmt');
+  if (stmt) stmt.onchange = () => { stmtFor = stmt.value; render(); };
   const hist = document.getElementById('hist');
   if (hist) hist.onchange = () => { histFor = hist.value; render(); };
   const f = document.getElementById('f');
@@ -246,8 +246,9 @@ function summaryView(t) {
     <div class="big ${myCls}">${myText}</div>
     ${mine.map(p => `<div>${p.from === me ? `Pay <b>${inr(p.amount)}</b> to <b>${cap(p.to)}</b>` : `Get <b>${inr(p.amount)}</b> from <b>${cap(p.from)}</b>`}</div>`).join('')}
     ${t.received[me] ? `<small class="mute">Already received ${inr(t.received[me])} from partners – counted.</small>` : ''}
-    <div class="mute" style="margin-top:6px;font-size:13px">Tap for full details ›</div>
+    <div class="mute" style="margin-top:6px;font-size:13px">Tap for every transaction ›</div>
   </div>
+  ${givenNotice(t)}
   <div class="grid">
     <div class="card"><h2>Spent till now</h2><div class="big red">${inr(t.spent)}</div></div>
     <div class="card"><h2>Sold till now</h2><div class="big green">${inr(t.sold)}</div></div>
@@ -295,38 +296,84 @@ function historyCard(t) {
   </div>`;
 }
 
-function personView(t, u) {
+/*
+  Line-by-line statement for one partner. Each row says what happened and how it moved
+  their balance (+ = they get back more, − = they get back less / owe more).
+  The rows add up exactly to bal[u] from totals().
+*/
+function statementRows(u) {
+  const n = USERS.length, rows = [];
+  const byTime = (a, b) => a.date.localeCompare(b.date) || new Date(a.created) - new Date(b.created);
+  for (const e of entries.slice().sort(byTime)) {
+    const each = e.amount / n, who = cap(e.person);
+    if (e.type === 'expense') {
+      const mine = e.person === u;
+      rows.push({e, icon: '💸', title: `${esc(e.note) || esc(e.category)} – ${inr(e.amount)}`,
+        detail: `${esc(e.category)} · paid by ${who}. ${cap(u)}'s 1/${n} share ${inr(each)}` + (mine ? `, and ${cap(u)} paid the full ${inr(e.amount)}` : ''),
+        effect: (mine ? e.amount : 0) - each});
+    } else if (e.type === 'sale') {
+      const mine = e.person === u;
+      rows.push({e, icon: '🧨', title: `Sale${e.note ? ' – ' + esc(e.note) : ''} – ${inr(e.amount)}`,
+        detail: `Cash with ${who}. ${cap(u)}'s 1/${n} share ${inr(each)}` + (mine ? `, but ${cap(u)} is holding the full ${inr(e.amount)}` : ''),
+        effect: each - (mine ? e.amount : 0)});
+    } else if (e.type === 'transfer' && (e.person === u || e.to_person === u)) {
+      const gave = e.person === u;
+      rows.push({e, icon: '💵', title: `${who} gave ${cap(e.to_person)} ${inr(e.amount)}`,
+        detail: (gave ? `Counts as ${cap(u)} paying in` : `${cap(u)} already has this money`) + (e.note ? ` · ${esc(e.note)}` : ''),
+        effect: gave ? e.amount : -e.amount});
+    }
+  }
+  let run = 0;
+  rows.forEach(r => { run += r.effect; r.run = run; });
+  return rows;
+}
+
+function statementView(t, u) {
   const [txt, cls] = statusText(t.bal[u]);
-  const mine = t.plan.filter(p => p.from === u || p.to === u);
-  const exp = t.exp.filter(e => e.person === u);
-  const sal = t.sal.filter(e => e.person === u);
-  const tr = t.tr.filter(e => e.person === u || e.to_person === u);
-  const line = (label, v, sign) => v ? `<div class="line"><span>${label}</span><b>${sign}${inr(v)}</b></div>` : '';
-  return `<button class="back" id="back">‹ Back</button>
-  <div class="card ${u === me ? 'you' : ''}"><h2>${cap(u)}</h2>
-    <div class="big ${cls}">${txt}</div>
-    ${mine.length ? mine.map(p => `<div class="row"><div class="l"><b>${p.from === u ? `Pay ${cap(p.to)}` : `Get from ${cap(p.from)}`}</b></div>
-      <div class="r"><b class="${p.from === u ? 'red' : 'green'}">${inr(p.amount)}</b></div></div>`).join('') : ''}
+  const legs = t.plan.filter(p => p.from === u || p.to === u);
+  const rows = statementRows(u);
+  const sign = v => (v >= 0 ? '+ ' : '− ') + inr(Math.abs(v));
+  const runText = v => Math.abs(v) < 1 ? 'even' : v > 0 ? 'gets ' + inr(v) : 'pays ' + inr(-v);
+  const line = (label, v, s) => v ? `<div class="line"><span>${label}</span><b>${s}${inr(v)}</b></div>` : '';
+  return `<div class="card">
+    <label style="margin-top:0">Statement for</label>
+    <select id="stmt">${USERS.map(x => `<option value="${x}" ${x===u?'selected':''}>${cap(x)}${x===me?' (you)':''}</option>`).join('')}</select>
   </div>
 
-  <div class="card"><h2>How this is worked out</h2>
+  <div class="card ${u === me ? 'you' : ''}"><h2>${cap(u)} – final position</h2>
+    <div class="big ${cls}">${txt}</div>
+    ${legs.map(p => `<div class="row"><div class="l"><b>${p.from === u ? `Pay ${cap(p.to)}` : `Get from ${cap(p.from)}`}</b></div>
+      <div class="r"><b class="${p.from === u ? 'red' : 'green'}">${inr(p.amount)}</b></div></div>`).join('')}
+  </div>
+
+  <div class="card"><h2>Short summary</h2>
     ${line('Paid for shop expenses', t.paid[u], '+ ')}
-    ${tr.filter(e => e.person === u).map(e => line('Gave to ' + cap(e.to_person), e.amount, '+ ')).join('')}
-    ${tr.filter(e => e.to_person === u).map(e => line('Received from ' + cap(e.person), e.amount, '− ')).join('')}
-    ${line('Sales cash collected', t.collected[u], '− ')}
-    <div class="line"><span>${t.share >= 0 ? 'Equal share of cost' : 'Equal share of profit'}</span><b>${t.share >= 0 ? '− ' : '+ '}${inr(Math.abs(t.share))}</b></div>
+    ${line('Money given to partners', t.given[u], '+ ')}
+    ${line('Money received from partners', t.received[u], '− ')}
+    ${line('Sales cash holding', t.collected[u], '− ')}
+    <div class="line"><span>${t.share >= 0 ? 'Equal 1/6 share of cost' : 'Equal 1/6 share of profit'}</span><b>${t.share >= 0 ? '− ' : '+ '}${inr(Math.abs(t.share))}</b></div>
     <div class="line total"><span>Balance</span><span class="${cls}">${txt}</span></div>
   </div>
 
-  ${tr.length ? `<div class="card"><h2>Money between partners</h2>${tr.map(e => `<div class="row"><div class="l">
-    <b>${e.person === u ? `Gave to ${cap(e.to_person)}` : `Received from ${cap(e.person)}`}</b><small>${fmtDate(e.date)}${e.note ? ' · ' + esc(e.note) : ''}</small></div>
-    <div class="r"><b>${inr(e.amount)}</b></div></div>`).join('')}</div>` : ''}
+  <div class="card"><h2>Every transaction (${rows.length})</h2>
+    <small class="mute">Oldest first. <b class="green">+</b> = ${cap(u)} gets back more · <b class="red">−</b> = ${cap(u)} gets back less / pays more.</small>
+    ${rows.length ? rows.map(r => `<div class="row"><div class="l"><b>${r.icon} ${r.title}</b>
+        <small>${fmtDate(r.e.date)} · ${r.detail}</small></div>
+      <div class="r"><b class="${r.effect >= 0 ? 'green' : 'red'}">${sign(r.effect)}</b><br><small>${runText(r.run)}</small></div></div>`).join('')
+      : '<div class="mute">Nothing yet</div>'}
+    ${rows.length ? `<div class="line total"><span>Final</span><span class="${cls}">${txt}</span></div>` : ''}
+  </div>`;
+}
 
-  <div class="card"><h2>Expenses paid · ${inr(t.paid[u])}</h2>${exp.length ? exp.map(e => `<div class="row"><div class="l"><b>${esc(e.note)}</b><small>${fmtDate(e.date)} · ${esc(e.category)}</small></div>
-    <div class="r"><b class="red">${inr(e.amount)}</b></div></div>`).join('') : '<span class="mute">None</span>'}</div>
-
-  ${sal.length ? `<div class="card"><h2>Sales cash collected · ${inr(t.collected[u])}</h2>${sal.map(e => `<div class="row"><div class="l"><b>${esc(e.note) || 'Sale'}</b><small>${fmtDate(e.date)}</small></div>
-    <div class="r"><b class="green">${inr(e.amount)}</b></div></div>`).join('')}</div>` : ''}`;
+// Shown on the Summary so nobody forgets money that already changed hands.
+function givenNotice(t) {
+  if (!t.tr.length) return '';
+  const shown = t.tr.slice(0, 5);
+  return `<div class="card" style="border-left:5px solid var(--green)"><h2>💵 Money already given between partners</h2>
+    ${shown.map(e => `<div class="row"><div class="l"><b>${cap(e.person)} gave ${cap(e.to_person)} ${inr(e.amount)}</b>
+      <small>${fmtDate(e.date)}${e.note ? ' · ' + esc(e.note) : ''}. Already counted: ${cap(e.person)} has paid in ${inr(e.amount)}, and ${cap(e.to_person)} gets ${inr(e.amount)} less from the others. Nobody pays this again.</small></div></div>`).join('')}
+    ${t.tr.length > shown.length ? `<small class="mute">+${t.tr.length - shown.length} more in the Settle tab</small>` : ''}
+  </div>`;
 }
 
 function formView(type) {
