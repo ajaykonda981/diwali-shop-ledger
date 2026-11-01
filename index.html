@@ -159,7 +159,7 @@ function renderLogin() {
     document.getElementById('eye').textContent = show ? 'Hide' : 'Show';
   };
   document.getElementById('go').onclick = go;
-  document.getElementById('p').onkeydown = e => e.key === 'Enter' && go();
+  document.getElementById('p').onkeydown = e => { if (e.key === 'Enter') go(); };
 }
 
 /*
