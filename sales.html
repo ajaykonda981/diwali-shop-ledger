@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#b91c1c">
+<title>Sales Counter – Diwali Shop</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root{--bg:#fff8ee;--card:#fff;--ink:#2b1a12;--mute:#7a6a5f;--red:#b91c1c;--gold:#f59e0b;--green:#15803d;--line:#efe3d3;--secret:#7c3aed}
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:140px}
+  header{background:var(--red);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;position:sticky;top:0;z-index:5}
+  header h1{font-size:18px;margin:0;white-space:nowrap}
+  header div{display:flex;gap:6px}
+  header button{background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:8px;padding:6px 10px;font-size:14px;white-space:nowrap}
+  main{max-width:640px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  .card h2{font-size:15px;margin:0 0 10px;color:var(--mute);font-weight:600}
+  .big{font-size:30px;font-weight:700}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .red{color:var(--red)}.green{color:var(--green)}.mute{color:var(--mute)}.secret{color:var(--secret)}
+  label{display:block;font-size:13px;color:var(--mute);margin:8px 0 3px}
+  input,select{width:100%;padding:11px;border:1px solid #dccfbe;border-radius:10px;font-size:16px;background:#fff;color:var(--ink)}
+  .btn{width:100%;margin-top:12px;padding:13px;border:0;border-radius:10px;background:var(--red);color:#fff;font-size:16px;font-weight:600}
+  .btn.green{background:var(--green)}
+  .btn:disabled{opacity:.45}
+  .link{background:none;border:0;color:var(--mute);text-decoration:underline;font-size:14px;padding:8px 0 0}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+  .row:first-child{border-top:0}
+  .row .l{min-width:0}.row .l b{display:block;overflow-wrap:anywhere}
+  .row small{color:var(--mute)}
+  .row .r{text-align:right;white-space:nowrap}
+  .line{display:flex;justify-content:space-between;padding:4px 0}
+  .line.total{border-top:1px solid var(--line);margin-top:6px;padding-top:8px;font-weight:700}
+  .del{background:none;border:0;color:#b9a99a;font-size:18px;padding:4px 8px}
+  .add{border:1px solid var(--red);color:var(--red);background:#fff;border-radius:8px;padding:6px 14px;font-size:15px;font-weight:600}
+  .qty{display:inline-flex;align-items:center;gap:4px}
+  .qty button{width:34px;height:34px;border:1px solid #dccfbe;border-radius:8px;background:#fff;font-size:18px;color:var(--ink)}
+  .qty input{width:54px;padding:6px 4px;text-align:center}
+  .filters{display:grid;grid-template-columns:1.4fr 1fr;gap:8px}
+  .lvl{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;margin-top:8px;cursor:pointer}
+  .lvl.on{border:2px solid var(--green);background:#f0fdf4}
+  .lvl input{width:130px;padding:8px}
+  .seg{display:flex;gap:8px}
+  .seg button{flex:1;padding:10px;border:1px solid #dccfbe;border-radius:10px;background:#fff;font-size:15px;color:var(--ink)}
+  .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .mini{border:1px solid #dccfbe;color:var(--ink);background:#fff;border-radius:8px;padding:4px 10px;font-size:13px;margin-top:4px}
+  .low{color:#b45309}
+  .warn{color:var(--red);font-size:14px;font-weight:600;min-height:20px;margin-top:8px}
+  .ourbox{border:1px dashed var(--secret);border-radius:10px;padding:6px 10px;margin-top:8px}
+  .cartbar{position:fixed;left:0;right:0;bottom:62px;display:flex;justify-content:center;padding:0 12px;z-index:4}
+  .cartbar button{width:100%;max-width:616px;padding:12px;border:0;border-radius:12px;background:var(--green);color:#fff;font-size:16px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.2)}
+  .toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--green);color:#fff;padding:10px 16px;border-radius:10px;font-weight:600;z-index:9}
+  nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+  nav button,nav a{flex:1;background:none;border:0;padding:12px 4px;font-size:13px;color:var(--mute);text-align:center;text-decoration:none}
+  nav b{display:block;font-size:20px;font-weight:400}
+  nav .on{color:var(--red);font-weight:700}
+  .login{max-width:360px;margin:12vh auto;padding:0 16px;text-align:center}
+  .login h1{color:var(--red)}
+  .err{color:var(--red);font-size:14px;min-height:20px;margin-top:8px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/*
+  Sales counter. Kept apart from the expense ledger (index.html): bills live in public.bills,
+  prices in public.products. Same Supabase project and same login as the ledger.
+
+  Prices per item:
+    cost        – "Actual price" list, what we paid. Hidden unless "Show" is on.
+    floor_price – "Price Drop" list, the lowest we can ever sell at. Hidden unless "Show" is on.
+    price       – customer price, shown first.
+  A bill can be given at the customer price or 5 / 10 / 15 % off, or any other amount,
+  but never below the sum of floor prices (also enforced by the database).
+  products.stock is the number left; the database takes bill items out of it (and puts them back
+  if a bill is deleted), so the 📦 Stock tab is always current.
+*/
+const SUPABASE_URL = "https://kkuzwlquzuhfzenlfigv.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrdXp3bHF1enVoZnplbmxmaWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxOTgwODEsImV4cCI6MjEwODc3NDA4MX0.TvfB27hzbYUIJVbnMc0VIXn3mPjEmMTQBKtMSc_cEXI";
+const USERS = ['ajay','mahesh','babu','shiva','anil','sashi'];
+const DOMAIN = '@diwali-shop.app';
+const LOW = 5; // "running low" at or below this many left
+const LEVELS = [['Customer price', 0], ['5% off', 5], ['10% off', 10], ['15% off', 15]];
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const cap = s => s[0].toUpperCase() + s.slice(1);
+const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today = () => new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD
+const fmtDate = d => new Date(d + 'T00:00').toLocaleDateString('en-IN', {day:'numeric', month:'short'});
+const fmtTime = t => new Date(t).toLocaleTimeString('en-IN', {hour:'numeric', minute:'2-digit'});
+const $ = id => document.getElementById(id);
+
+let me = null, started = false, products = [], bills = [], setupError = '', view = 'bill', ch = null;
+let q = '', cat = '', billsDay = today(), stockFilter = '', editId = null, adding = false;
+let show = localStorage.getItem('show_our_prices') === '1';      // show cost + lowest prices on this phone
+let cart = JSON.parse(localStorage.getItem('cart') || '{}');      // product id → quantity
+let pick = 0, other = '', payMode = 'cash', collector = null, note = '';
+const app = $('app');
+
+sb.auth.onAuthStateChange((_e, s) => {
+  const u = s ? s.user.email.split('@')[0] : null;
+  if (started && u === me) return; // ignore token-refresh repeats
+  started = true;
+  me = u;
+  if (ch) { sb.removeChannel(ch); ch = null; }
+  if (u) {
+    load();
+    ch = sb.channel('sales-live')
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'products'}, load)
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'bills'}, load)
+      .subscribe();
+  }
+  render();
+});
+
+async function load() {
+  const [p, b] = await Promise.all([
+    sb.from('products').select('*').eq('active', true).order('sno'),
+    sb.from('bills').select('*').order('created', {ascending: false})
+  ]);
+  setupError = (p.error || b.error) ? (p.error || b.error).message : '';
+  const num = r => ({...r, price: Number(r.price), floor_price: Number(r.floor_price), cost: Number(r.cost), stock: Number(r.stock)});
+  products = (p.data || []).map(num);
+  bills = (b.data || []).map(r => ({...r, amount: Number(r.amount), list_total: Number(r.list_total), floor_total: Number(r.floor_total), cost_total: Number(r.cost_total)}));
+  if (me) renderBody();
+}
+
+function render() { me ? renderMain() : renderLogin(); }
+
+function renderLogin() {
+  const last = localStorage.getItem('last_user') || USERS[0];
+  app.innerHTML = `<div class="login">
+    <h1>🧨 Sales Counter</h1>
+    <p class="mute">Diwali shop – billing</p>
+    <div class="card">
+      <label>Who are you?</label>
+      <select id="u">${USERS.map(u => `<option value="${u}" ${u===last?'selected':''}>${cap(u)}</option>`).join('')}</select>
+      <label>Password</label>
+      <input id="p" type="password" autocomplete="current-password">
+      <button class="btn" id="go">Login</button>
+      <div class="err" id="err"></div>
+    </div>
+  </div>`;
+  const go = async () => {
+    const u = $('u').value;
+    $('err').textContent = '';
+    localStorage.setItem('last_user', u);
+    const {error} = await sb.auth.signInWithPassword({email: u + DOMAIN, password: $('p').value});
+    if (error) $('err').textContent = 'Wrong password or login failed';
+  };
+  $('go').onclick = go;
+  $('p').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+
+function renderMain() {
+  app.innerHTML = `<header><h1>🧨 Sales Counter</h1><div>
+      <button id="eye">${show ? '🙈 Hide' : '👁 Show'}</button><button id="out">${cap(me)} · Logout</button></div></header>
+    <main id="body"></main>
+    <div class="cartbar" id="bar"></div>
+    <nav>
+      <button data-v="bill" class="${view==='bill'?'on':''}"><b>🧾</b>New bill</button>
+      <button data-v="bills" class="${view==='bills'?'on':''}"><b>📋</b>Bills</button>
+      <button data-v="stock" class="${view==='stock'?'on':''}"><b>📦</b>Stock</button>
+      <a href="./"><b>📒</b>Ledger</a>
+    </nav>`;
+  $('out').onclick = () => sb.auth.signOut();
+  $('eye').onclick = () => { show = !show; localStorage.setItem('show_our_prices', show ? '1' : '0'); renderMain(); };
+  app.querySelectorAll('nav button').forEach(b => b.onclick = () => { view = b.dataset.v; q = ''; editId = null; renderMain(); window.scrollTo(0, 0); });
+  renderBody();
+}
+
+function renderBody() {
+  const body = $('body');
+  if (!body) return;
+  if (setupError) {
+    body.innerHTML = `<div class="card"><h2>Sales counter is not ready yet</h2><span class="mute">The price list is not in the database yet. Ask Ajay.</span><br><small class="mute">${esc(setupError)}</small></div>`;
+    $('bar').innerHTML = '';
+    return;
+  }
+  if (view === 'bills') { body.innerHTML = billsView(); $('bar').innerHTML = ''; return; }
+  const cats = [...new Set(products.map(p => p.category))];
+  body.innerHTML = `${view === 'stock' ? stockSummary() : ''}<div class="card">
+      <div class="filters">
+        <input id="q" type="search" placeholder="🔍 Search item or number" value="${esc(q)}" autocomplete="off">
+        <select id="cat"><option value="">All types</option>${cats.map(c => `<option ${c===cat?'selected':''}>${esc(c)}</option>`).join('')}</select>
+      </div>
+      ${view === 'stock' ? `<select id="sf" style="margin-top:8px"><option value="">All items</option><option value="low" ${stockFilter==='low'?'selected':''}>Running low (${LOW} or less)</option><option value="out" ${stockFilter==='out'?'selected':''}>Finished</option></select>` : ''}
+      <div id="plist" style="margin-top:6px"></div>
+    </div>
+    ${view === 'stock' ? '' : '<div id="cart"></div>'}`;
+  renderList();
+  if (view === 'stock') $('bar').innerHTML = ''; else renderCart();
+}
+
+/* ---------- product list ---------- */
+function filtered() {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return products.filter(p => (!cat || p.category === cat) &&
+    words.every(w => `${p.sno} ${p.name} ${p.category}`.toLowerCase().includes(w)));
+}
+
+const qtyCtl = (id, n) => `<span class="qty"><button data-dec="${id}" aria-label="Less">−</button><input data-qty="${id}" type="number" inputmode="numeric" min="0" value="${n}"><button data-inc="${id}" aria-label="More">+</button></span>`;
+const ours = (floor, cost) => show ? `<span class="secret">lowest ${inr(floor)} · cost ${inr(cost)}</span>` : '';
+
+const leftCls = n => n <= 0 ? 'red' : n <= LOW ? 'low' : 'mute';
+const leftTxt = n => n <= 0 ? (n < 0 ? `${n} left – recount` : 'finished') : `${n} left`;
+
+function renderList() {
+  if (view === 'stock') return renderStock();
+  const l = filtered();
+  $('plist').innerHTML = l.length ? l.map(p => { const n = cart[p.id] || 0; return `<div class="row">
+      <div class="l"><b>${esc(p.name)}</b><small>#${p.sno} · ${esc(p.unit)}${cat ? '' : ' · ' + esc(p.category)} · <b class="${leftCls(p.stock)}" style="display:inline">${leftTxt(p.stock)}</b></small>${show ? `<small style="display:block">${ours(p.floor_price, p.cost)}</small>` : ''}</div>
+      <div class="r"><b>${inr(p.price)}</b><div style="margin-top:4px">${n ? qtyCtl(p.id, n) : `<button class="add" data-add="${p.id}">+ Add</button>`}</div></div></div>`; }).join('')
+    : `<div class="mute" style="padding:10px 0">${products.length ? 'No item matches' : 'Price list is empty'}</div>`;
+}
+
+/* ---------- bill ---------- */
+function bill() {
+  const items = Object.entries(cart).map(([id, qty]) => ({p: products.find(p => String(p.id) === id), qty})).filter(x => x.p);
+  const s = k => items.reduce((a, x) => a + x.p[k] * x.qty, 0);
+  const list = s('price'), floor = s('floor_price'), cost = s('cost');
+  const levels = LEVELS.map(([name, off]) => { const v = Math.round(list * (100 - off) / 100); return {name, amount: Math.max(v, floor), stopped: v < floor}; });
+  const amount = pick === 'other' ? Number(other) || 0 : levels[pick].amount;
+  return {items, list, floor, cost, levels, amount, count: items.reduce((a, x) => a + x.qty, 0)};
+}
+
+function renderCart() {
+  const b = bill(), box = $('cart');
+  $('bar').innerHTML = b.count ? `<button id="gobill">🧾 ${b.count} item${b.count > 1 ? 's' : ''} · ${inr(b.list)} · See bill ↓</button>` : '';
+  if ($('gobill')) $('gobill').onclick = () => box.scrollIntoView({behavior: 'smooth'});
+  if (!b.items.length) { box.innerHTML = `<div class="card"><h2>🧾 Bill</h2><span class="mute">Tap "+ Add" on items above.</span></div>`; return; }
+  box.innerHTML = `<div class="card"><h2>🧾 Bill · ${b.count} item${b.count > 1 ? 's' : ''}</h2>
+    ${b.items.map(({p, qty}) => `<div class="row"><div class="l"><b>${esc(p.name)}</b><small>${inr(p.price)} each</small>${qty > p.stock ? `<small class="red" style="display:block">⚠ only ${Math.max(p.stock, 0)} left in stock</small>` : ''}<div style="margin-top:4px">${qtyCtl(p.id, qty)}</div></div>
+      <div class="r"><b>${inr(p.price * qty)}</b><button class="del" data-rm="${p.id}" aria-label="Remove">✕</button></div></div>`).join('')}
+    <div class="line total"><span>Total at customer price</span><span>${inr(b.list)}</span></div>
+    ${show ? `<div class="ourbox secret"><div class="line"><span>Lowest allowed</span><b>${inr(b.floor)}</b></div><div class="line"><span>Our cost</span><b>${inr(b.cost)}</b></div></div>` : ''}
+  </div>
+
+  <div class="card"><h2>Customer pays</h2>
+    ${b.levels.map((l, i) => `<div class="lvl${pick === i ? ' on' : ''}" data-lvl="${i}"><span><b>${l.name}</b>${l.stopped ? '<br><small class="mute">stopped at the lowest allowed</small>' : ''}</span><b>${inr(l.amount)}</b></div>`).join('')}
+    <div class="lvl${pick === 'other' ? ' on' : ''}" data-lvl="other"><b>Other amount</b><input id="other" type="number" inputmode="numeric" placeholder="₹" value="${esc(other)}"></div>
+    <div class="warn" id="warn"></div>
+    <label>Paid by</label>
+    <div class="seg"><button data-pay="cash" class="${payMode==='cash'?'on':''}">💵 Cash</button><button data-pay="upi" class="${payMode==='upi'?'on':''}">📱 UPI</button></div>
+    <label>Money collected by</label>
+    <select id="coll">${USERS.map(u => `<option value="${u}" ${u===(collector || me)?'selected':''}>${cap(u)}</option>`).join('')}</select>
+    <label>Customer name / note (optional)</label>
+    <input id="note" maxlength="100" value="${esc(note)}">
+    <button class="btn green" id="save"></button>
+    <button class="link" id="clear">Clear bill</button>
+  </div>`;
+  check();
+}
+
+// Validate the chosen amount without redrawing (keeps the keyboard open while typing).
+function check() {
+  const b = bill(), save = $('save');
+  if (!save) return true;
+  let msg = '';
+  if (pick === 'other' && !b.amount) msg = 'Type the amount the customer pays.';
+  else if (b.amount < b.floor) msg = `Too low! Lowest allowed for this bill is ${inr(b.floor)}.`;
+  $('warn').textContent = msg;
+  save.disabled = !!msg;
+  save.textContent = `Save bill · ${inr(b.amount)}`;
+  return !msg;
+}
+
+function setQty(id, n) {
+  n = Math.max(0, Math.floor(Number(n) || 0));
+  if (n) cart[id] = n; else delete cart[id];
+  localStorage.setItem('cart', JSON.stringify(cart));
+  renderList();
+  renderCart();
+}
+
+async function saveBill() {
+  if (!check()) return;
+  const b = bill();
+  $('save').disabled = true;
+  const {error} = await sb.from('bills').insert({
+    items: b.items.map(({p, qty}) => ({product_id: p.id, name: p.name, unit: p.unit, qty, price: p.price, floor_price: p.floor_price, cost: p.cost})),
+    list_total: b.list, floor_total: b.floor, cost_total: b.cost, amount: b.amount,
+    level: pick === 'other' ? 'Other amount' : b.levels[pick].name,
+    pay_mode: payMode, collected_by: collector || me, note: note.trim() || null, date: today(), added_by: me
+  });
+  if (error) { alert('Could not save: ' + error.message); $('save').disabled = false; return; }
+  cart = {}; localStorage.setItem('cart', '{}');
+  pick = 0; other = ''; note = '';
+  toast(`Bill saved ✓ ${inr(b.amount)}`);
+  q = ''; renderBody(); window.scrollTo(0, 0);
+  load();
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+/* ---------- stock ---------- */
+function soldCounts() {
+  const n = {};
+  for (const b of bills) for (const i of b.items) n[i.product_id] = (n[i.product_id] || 0) + i.qty;
+  return n;
+}
+
+function stockSummary() {
+  const sum = f => products.reduce((a, p) => a + f(p), 0);
+  return `<div class="card"><h2>📦 Stock left</h2>
+    <div class="line"><span>Pieces left (all items)</span><b>${sum(p => Math.max(p.stock, 0)).toLocaleString('en-IN')}</b></div>
+    <div class="line"><span>Running low (${LOW} or less)</span><b class="low">${products.filter(p => p.stock > 0 && p.stock <= LOW).length} items</b></div>
+    <div class="line"><span>Finished</span><b class="red">${products.filter(p => p.stock <= 0).length} items</b></div>
+    <div class="line"><span>Worth at customer price</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.price))}</b></div>
+    ${show ? `<div class="ourbox secret"><div class="line"><span>Worth at lowest price</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.floor_price))}</b></div><div class="line"><span>Worth at our cost</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.cost))}</b></div></div>` : ''}
+    <small class="mute">Every saved bill takes its items out of stock by itself. Tap "Edit" after a recount or when new stock comes in.</small>
+  </div>
+  ${addItemCard()}`;
+}
+
+// Items missing from the price list (e.g. bought later) are added here.
+// Customer price left empty = lowest + 50%, rounded up to ₹10, like the rest of the list.
+const autoPrice = floor => Math.ceil(floor * 1.5 / 10) * 10;
+function addItemCard() {
+  if (!adding) return `<button class="btn" id="addopen" style="margin:0 0 14px">➕ Add new item</button>`;
+  const cats = [...new Set(products.map(p => p.category))];
+  return `<form class="card" id="addform"><h2>➕ Add new item</h2>
+    <label>Item name</label><input name="name" required maxlength="80">
+    <label>Type</label><select name="category">${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select>
+    <label>Sold per</label><select name="unit"><option>Box</option><option>Pkt</option><option>Pcs</option></select>
+    <div class="grid">
+      <div><label>Our cost ₹ (actual)</label><input name="cost" type="number" inputmode="numeric" min="0" required></div>
+      <div><label>Lowest price ₹</label><input name="floor_price" type="number" inputmode="numeric" min="1" required></div>
+      <div><label>Customer price ₹</label><input name="price" type="number" inputmode="numeric" min="1" placeholder="auto"></div>
+      <div><label>Stock (how many)</label><input name="stock" type="number" inputmode="numeric" min="0" value="0"></div>
+    </div>
+    <small class="mute">Leave customer price empty to use lowest + 50% (rounded up to ₹10).</small>
+    <div class="warn" id="addwarn"></div>
+    <button class="btn green">Save item</button>
+    <button type="button" class="link" id="addclose">Cancel</button>
+  </form>`;
+}
+
+async function saveItem(f) {
+  const d = Object.fromEntries(new FormData(f));
+  const floor = Number(d.floor_price), price = d.price ? Number(d.price) : autoPrice(floor);
+  if (price < floor) return $('addwarn').textContent = 'Customer price cannot be less than the lowest price.';
+  if (products.some(p => p.name.toLowerCase() === d.name.trim().toLowerCase())) return $('addwarn').textContent = 'This item is already in the list.';
+  f.querySelector('button').disabled = true;
+  const {error} = await sb.from('products').insert({
+    sno: Math.max(0, ...products.map(p => p.sno || 0)) + 1, name: d.name.trim(), category: d.category, unit: d.unit,
+    cost: Number(d.cost), floor_price: floor, price, stock: Math.floor(Number(d.stock) || 0)
+  });
+  if (error) { $('addwarn').textContent = 'Could not save: ' + error.message; f.querySelector('button').disabled = false; return; }
+  adding = false;
+  toast(`Added ✓ ${d.name.trim()} at ${inr(price)}`);
+  await load();
+}
+
+function renderStock() {
+  const sold = soldCounts();
+  const l = filtered().filter(p => !stockFilter || (stockFilter === 'out' ? p.stock <= 0 : p.stock <= LOW));
+  $('plist').innerHTML = l.length ? l.map(p => `<div class="row">
+      <div class="l"><b>${esc(p.name)}</b><small>#${p.sno} · ${esc(p.unit)} · sold ${sold[p.id] || 0}</small></div>
+      <div class="r">${editId === p.id
+        ? `<span class="qty"><input id="stk" type="number" inputmode="numeric" value="${p.stock}" style="width:80px"><button data-savestk="${p.id}" aria-label="Save">✓</button></span>`
+        : `<b class="${leftCls(p.stock)}">${leftTxt(p.stock)}</b><br><button class="mini" data-edit="${p.id}">Edit</button>`}</div></div>`).join('')
+    : '<div class="mute" style="padding:10px 0">No item matches</div>';
+  if ($('stk')) $('stk').focus();
+}
+
+async function saveStock(id) {
+  const n = Math.floor(Number($('stk').value));
+  if (!Number.isFinite(n)) return;
+  const {error} = await sb.from('products').update({stock: n}).eq('id', id);
+  if (error) return alert('Could not save: ' + error.message);
+  editId = null;
+  await load();
+}
+
+/* ---------- saved bills ---------- */
+function billsView() {
+  const days = [...new Set([today(), ...bills.map(b => b.date)])].sort().reverse();
+  const list = billsDay === 'all' ? bills : bills.filter(b => b.date === billsDay);
+  const sum = (l, f) => l.reduce((a, b) => a + f(b), 0);
+  const total = sum(list, b => b.amount), cash = sum(list.filter(b => b.pay_mode === 'cash'), b => b.amount);
+  const disc = sum(list, b => b.list_total - b.amount), cost = sum(list, b => b.cost_total);
+  const withWho = USERS.map(u => [u, sum(list.filter(b => b.pay_mode === 'cash' && b.collected_by === u), b => b.amount)]).filter(x => x[1] > 0);
+  return `<div class="card">
+      <select id="day">${days.map(d => `<option value="${d}" ${d===billsDay?'selected':''}>${d === today() ? 'Today' : fmtDate(d)}</option>`).join('')}
+        <option value="all" ${billsDay==='all'?'selected':''}>All days</option></select>
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Sales</h2><div class="big green">${inr(total)}</div><small class="mute">${list.length} bill${list.length === 1 ? '' : 's'}</small></div>
+      <div class="card"><h2>Discount given</h2><div class="big">${inr(disc)}</div><small class="mute">off customer price</small></div>
+    </div>
+    <div class="card"><h2>Money</h2>
+      <div class="line"><span>💵 Cash</span><b>${inr(cash)}</b></div>
+      ${withWho.map(([u, v]) => `<div class="line"><small class="mute">&nbsp;&nbsp;&nbsp;with ${cap(u)}</small><small>${inr(v)}</small></div>`).join('')}
+      <div class="line"><span>📱 UPI</span><b>${inr(total - cash)}</b></div>
+      ${show ? `<div class="ourbox secret"><div class="line"><span>Our cost of these items</span><b>${inr(cost)}</b></div><div class="line"><span>Profit</span><b>${inr(total - cost)}</b></div></div>` : ''}
+    </div>
+    <div class="card"><h2>Bills</h2>
+      ${list.length ? list.map(b => `<div class="row"><div class="l">
+          <b>${inr(b.amount)} · ${b.pay_mode === 'upi' ? 'UPI' : 'Cash'} · ${cap(b.collected_by)}</b>
+          <small>${billsDay === 'all' ? fmtDate(b.date) + ' ' : ''}${fmtTime(b.created)} · ${b.items.map(i => `${esc(i.name)} ×${i.qty}`).join(', ')}
+          · ${esc(b.level)}${b.list_total > b.amount ? ` (${inr(b.list_total - b.amount)} off)` : ''}${b.note ? ' · ' + esc(b.note) : ''}${b.added_by && b.added_by !== b.collected_by ? ' · billed by ' + cap(b.added_by) : ''}</small></div>
+        <div class="r"><button class="del" data-delbill="${b.id}" aria-label="Delete">✕</button></div></div>`).join('')
+        : '<span class="mute">No bills yet</span>'}
+    </div>`;
+}
+
+/* ---------- one set of listeners for everything drawn above ---------- */
+app.addEventListener('click', e => {
+  const d = e.target.closest('[data-add],[data-inc],[data-dec],[data-rm],[data-lvl],[data-pay],[data-delbill],[data-edit],[data-savestk],#save,#clear,#addopen,#addclose');
+  if (!d) return;
+  const {add, inc, dec, rm, lvl, pay, delbill, edit, savestk} = d.dataset;
+  if (d.id === 'addopen' || d.id === 'addclose') { adding = d.id === 'addopen'; renderBody(); if (adding) $('addform').scrollIntoView(); }
+  else if (edit) { editId = Number(edit); renderStock(); }
+  else if (savestk) saveStock(Number(savestk));
+  else if (add) setQty(add, 1);
+  else if (inc) setQty(inc, (cart[inc] || 0) + 1);
+  else if (dec) setQty(dec, (cart[dec] || 0) - 1);
+  else if (rm) setQty(rm, 0);
+  else if (lvl !== undefined) {
+    if (lvl === 'other') { if (pick !== 'other') { pick = 'other'; renderCart(); $('other').focus(); } }
+    else { pick = Number(lvl); renderCart(); }
+  }
+  else if (pay) { payMode = pay; renderCart(); }
+  else if (delbill) { if (confirm('Delete this bill?')) sb.from('bills').delete().eq('id', delbill).then(({error}) => error ? alert(error.message) : load()); }
+  else if (d.id === 'save') saveBill();
+  else if (d.id === 'clear') { if (confirm('Clear this bill?')) { cart = {}; localStorage.setItem('cart', '{}'); pick = 0; other = ''; renderList(); renderCart(); } }
+});
+app.addEventListener('submit', e => { if (e.target.id === 'addform') { e.preventDefault(); saveItem(e.target); } });
+app.addEventListener('keydown', e => { if (e.target.id === 'stk' && e.key === 'Enter') saveStock(editId); });
+app.addEventListener('input', e => {
+  const t = e.target;
+  if (t.id === 'q') { q = t.value; renderList(); }
+  else if (t.id === 'other') {
+    other = t.value;
+    if (pick !== 'other') { pick = 'other'; app.querySelectorAll('.lvl').forEach(x => x.classList.toggle('on', x.dataset.lvl === 'other')); }
+    check();
+  }
+  else if (t.id === 'note') note = t.value;
+});
+app.addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'cat') { cat = t.value; renderList(); }
+  else if (t.id === 'coll') collector = t.value;
+  else if (t.id === 'day') { billsDay = t.value; renderBody(); }
+  else if (t.id === 'sf') { stockFilter = t.value; renderStock(); }
+  else if (t.dataset.qty) setQty(t.dataset.qty, t.value);
+});
+</script>
+</body>
+</html>

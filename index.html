@@ -233,7 +233,7 @@ function renderMain() {
   let body = '';
   if (tab === 'summary') body = summaryView(t);
   else if (tab === 'expense') body = formView('expense') + listView(t.exp, 'expense');
-  else if (tab === 'sale') body = salesNote(t) + formView('sale') + listView(t.sal, 'sale');
+  else if (tab === 'sale') body = SALES_IN_SPLIT ? formView('sale') + listView(t.sal, 'sale') : salesNote(t) + (t.sal.length ? listView(t.sal, 'sale') : '');
   else if (tab === 'settle') body = planCard(t) + historyCard(t) + formView('transfer');
   else if (tab === 'statement') body = statementView(t, stmtFor || me);
   else if (tab === 'ledger') body = ledgerView(t, crFor || me) + planWhyCard(t, crFor || me) + historyCard(t);
@@ -325,11 +325,12 @@ function summaryView(t) {
   ${givenNotice(t)}
   <div class="grid">
     <div class="card"><h2>Spent till now</h2><div class="big red">${inr(t.spent)}</div></div>
-    <div class="card"><h2>Sold till now</h2><div class="big green">${inr(t.sold)}</div></div>
+    ${SALES_IN_SPLIT ? `<div class="card"><h2>Sold till now</h2><div class="big green">${inr(t.sold)}</div></div>`
+      : `<a class="card" href="sales.html" style="text-decoration:none;color:inherit"><h2>Sales</h2><div style="font-size:20px;font-weight:700">🧨 Open counter ›</div><small class="mute">kept separate</small></a>`}
   </div>
-  <div class="card"><h2>${profit >= 0 ? 'Profit so far' : 'Still to recover'}</h2>
+  ${SALES_IN_SPLIT ? `<div class="card"><h2>${profit >= 0 ? 'Profit so far' : 'Still to recover'}</h2>
     <div class="big ${profit >= 0 ? 'green' : 'red'}">${inr(Math.abs(profit))}</div>
-    <small class="mute">Sales − Expenses · ${SALES_IN_SPLIT ? `${profit >= 0 ? 'each gets' : 'each bears'} ${inr(Math.abs(t.share))}` : 'for information only – sales are sorted out after Diwali'}</small></div>
+    <small class="mute">Sales − Expenses · ${profit >= 0 ? 'each gets' : 'each bears'} ${inr(Math.abs(t.share))}</small></div>` : ''}
 
   ${planCard(t)}
 
@@ -535,12 +536,12 @@ function planWhyCard(t, u) {
   </div>`;
 }
 
-// Top of the Sales tab: whether sales count in the split, and how much sales cash each partner holds.
+// Sales tab while sales are kept separate: a way into the sales counter page (sales.html).
 function salesNote(t) {
-  if (SALES_IN_SPLIT) return '';
   const cash = USERS.map(u => [u, t.sal.filter(e => e.person === u).reduce((a, e) => a + e.amount, 0)]).filter(x => x[1] > 0);
   return `<div class="card" style="border-left:5px solid var(--gold)"><h2>🧨 Sales are kept separate</h2>
     <small class="mute">Sales do not change anyone's share or who pays whom. Only expenses are split for now. Sales cash is sorted out after Diwali.</small>
+    <a class="btn gold" href="sales.html" style="display:block;text-align:center;text-decoration:none">🧨 Open Sales Counter – billing & stock</a>
     ${cash.map(([u, v]) => `<div class="line"><span>Sales cash with ${cap(u)}</span><b>${inr(v)}</b></div>`).join('')}
     ${cash.length ? `<div class="line total"><span>Total sales</span><span class="green">${inr(t.sold)}</span></div>` : ''}
   </div>`;
