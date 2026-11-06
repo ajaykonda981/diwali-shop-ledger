@@ -73,6 +73,9 @@ const DOMAIN = '@diwali-shop.app';
 // Partners who keep a lump-sum advance with another partner instead of paying each time (Babu is remote).
 // Their share of every expense comes out of that advance, so nobody else pays or collects from them.
 const ADVANCE_WITH = {babu: 'shiva'};
+// Sales stay out of the split for now: shares and who-pays-whom cover expenses only.
+// Sales cash is sorted out separately after Diwali. Set to true to count sales in the split again.
+const SALES_IN_SPLIT = false;
 const CATS = ['Goods / Stock','Transport','Permissions','Guide / Agent','Shop setup','Labour','Food & Misc','Other'];
 const DEMO = SUPABASE_URL.includes('PASTE');
 
@@ -178,6 +181,7 @@ function renderLogin() {
     put in  = expenses they paid + money they handed to other partners
     took out = sales cash they collected + money they received from other partners
     share   = (total expenses − total sales) / 6   (negative once there is profit)
+  While SALES_IN_SPLIT is false, sales count as zero here (splitSold = 0, collected = 0).
     balance = put in − took out − share            (+ gets back, − has to pay)
   Balances always add up to zero, so the plan below settles everyone exactly.
 */
@@ -186,13 +190,13 @@ function totals() {
   const exp = of('expense'), sal = of('sale'), tr = of('transfer');
   const sum = l => l.reduce((a, e) => a + e.amount, 0);
   const per = (l, key) => Object.fromEntries(USERS.map(u => [u, sum(l.filter(e => e[key] === u))]));
-  const spent = sum(exp), sold = sum(sal);
-  const paid = per(exp, 'person'), collected = per(sal, 'person');
+  const spent = sum(exp), sold = sum(sal), splitSold = SALES_IN_SPLIT ? sold : 0;
+  const paid = per(exp, 'person'), collected = per(SALES_IN_SPLIT ? sal : [], 'person');
   const given = per(tr, 'person'), received = per(tr, 'to_person');
-  const share = (spent - sold) / USERS.length;
+  const share = (spent - splitSold) / USERS.length;
   const bal = Object.fromEntries(USERS.map(u => [u, paid[u] + given[u] - collected[u] - received[u] - share]));
   const cats = CATS.map(c => [c, sum(exp.filter(e => e.category === c))]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
-  return {exp, sal, tr, spent, sold, paid, collected, given, received, share, bal, cats, plan: settlePlan(bal)};
+  return {exp, sal, tr, spent, sold, splitSold, paid, collected, given, received, share, bal, cats, plan: settlePlan(bal)};
 }
 
 // Fewest payments: biggest debtor pays biggest creditor, repeat.
@@ -229,7 +233,7 @@ function renderMain() {
   let body = '';
   if (tab === 'summary') body = summaryView(t);
   else if (tab === 'expense') body = formView('expense') + listView(t.exp, 'expense');
-  else if (tab === 'sale') body = formView('sale') + listView(t.sal, 'sale');
+  else if (tab === 'sale') body = salesNote(t) + formView('sale') + listView(t.sal, 'sale');
   else if (tab === 'settle') body = planCard(t) + historyCard(t) + formView('transfer');
   else if (tab === 'statement') body = statementView(t, stmtFor || me);
   else if (tab === 'ledger') body = ledgerView(t, crFor || me) + planWhyCard(t, crFor || me) + historyCard(t);
@@ -278,7 +282,7 @@ function advanceCards(t) {
       ${line(`${cap(u)} gave other partners`, t.given[u] - toHolder, '+')}
       ${line(`Expenses ${cap(u)} paid directly`, t.paid[u], '+')}
       ${line(`${cap(u)}'s 1/${n} share of all expenses (${inr(t.spent)})`, t.spent / n, '−')}
-      ${line(`${cap(u)}'s 1/${n} share of sales (${inr(t.sold)})`, t.sold / n, '+')}
+      ${line(`${cap(u)}'s 1/${n} share of sales (${inr(t.splitSold)})`, t.splitSold / n, '+')}
       ${line('Sales cash with ' + cap(u), t.collected[u], '−')}
       ${line('Received from partners', t.received[u], '−')}
       <div class="line total"><span>${v >= 0 ? `Left with ${cap(h)}` : `${cap(u)} to top up ${cap(h)}`}</span><span class="${v >= 0 ? 'green' : 'red'}">${inr(Math.abs(v))}</span></div>
@@ -298,8 +302,8 @@ function myMoneyCard(t, u) {
     ${line('Money you received from partners', t.received[u])}
     ${line('Sales cash with you', t.collected[u])}
     <div class="line" style="margin-top:8px"><span>Total shop expenses</span><b>${inr(t.spent)}</b></div>
-    ${line(`Total sales`, t.sold)}
-    <div class="line"><span>${t.share >= 0 ? `Your 1/${n} share of cost${t.sold ? ' (expenses − sales)' : ''}` : `Your 1/${n} share of profit`}</span><b>${inr(Math.abs(t.share))}</b></div>
+    ${line(`Total sales`, t.splitSold)}
+    <div class="line"><span>${t.share >= 0 ? `Your 1/${n} share of cost${t.splitSold ? ' (expenses − sales)' : ''}` : `Your 1/${n} share of profit`}</span><b>${inr(Math.abs(t.share))}</b></div>
     <div class="line total"><span>Result</span><span class="${cls}">${txt}</span></div>
   </div>`;
 }
@@ -325,7 +329,7 @@ function summaryView(t) {
   </div>
   <div class="card"><h2>${profit >= 0 ? 'Profit so far' : 'Still to recover'}</h2>
     <div class="big ${profit >= 0 ? 'green' : 'red'}">${inr(Math.abs(profit))}</div>
-    <small class="mute">Sales − Expenses · ${profit >= 0 ? 'each gets' : 'each bears'} ${inr(Math.abs(t.share))}</small></div>
+    <small class="mute">Sales − Expenses · ${SALES_IN_SPLIT ? `${profit >= 0 ? 'each gets' : 'each bears'} ${inr(Math.abs(t.share))}` : 'for information only – sales are sorted out after Diwali'}</small></div>
 
   ${planCard(t)}
 
@@ -347,7 +351,7 @@ function planCard(t) {
       : `<div class="row"><div class="l"><b>${cap(p.from)} → ${cap(p.to)}</b><small>${cap(p.from)} pays ${cap(p.to)}</small></div>
       <div class="r"><b>${inr(p.amount)}</b><button class="mini paid" data-from="${p.from}" data-to="${p.to}" data-amount="${p.amount}">Paid ✓</button></div></div>`).join('')
       : '<span class="mute">Everyone is settled 🎉</span>'}
-    <small class="mute">Counts expenses paid, sales cash collected and money already given between partners. ${Object.keys(ADVANCE_WITH).map(cap).join(', ')}'s share comes from the advance, so nobody pays or collects from ${Object.keys(ADVANCE_WITH).map(cap).join(', ')}. Tap "Paid ✓" once the money is handed over.</small>
+    <small class="mute">Counts expenses paid${SALES_IN_SPLIT ? ', sales cash collected' : ''} and money already given between partners.${SALES_IN_SPLIT ? '' : ' Sales are not counted yet – they are sorted out after Diwali.'} ${Object.keys(ADVANCE_WITH).map(cap).join(', ')}'s share comes from the advance, so nobody pays or collects from ${Object.keys(ADVANCE_WITH).map(cap).join(', ')}. Tap "Paid ✓" once the money is handed over.</small>
   </div>`;
 }
 
@@ -384,7 +388,7 @@ function statementRows(u) {
       rows.push({e, icon: '💸', title: `${esc(e.note) || esc(e.category)} – ${inr(e.amount)}`,
         detail: `${esc(e.category)} · paid by ${who}. ${cap(u)}'s 1/${n} share ${inr(each)}` + (mine ? `, and ${cap(u)} paid the full ${inr(e.amount)}` : ''),
         effect: (mine ? e.amount : 0) - each});
-    } else if (e.type === 'sale') {
+    } else if (e.type === 'sale' && SALES_IN_SPLIT) {
       const mine = e.person === u;
       rows.push({e, icon: '🧨', title: `Sale${e.note ? ' – ' + esc(e.note) : ''} – ${inr(e.amount)}`,
         detail: `Cash with ${who}. ${cap(u)}'s 1/${n} share ${inr(each)}` + (mine ? `, but ${cap(u)} is holding the full ${inr(e.amount)}` : ''),
@@ -444,6 +448,7 @@ function statementView(t, u) {
   Credit / debit book for one partner, like a bank passbook.
     Credit = money the partner put in: expenses paid, money given to partners, 1/6 of sales.
     Debit  = their 1/6 of expenses, plus money they already hold: sales cash kept, money received.
+  (Sales lines only appear while SALES_IN_SPLIT is true.)
   Credit − debit is exactly bal[u] from totals().
 */
 function ledgerRows(t, u) {
@@ -452,18 +457,18 @@ function ledgerRows(t, u) {
   const note = e => e.note ? ' – ' + esc(e.note) : '';
   for (const e of entries.slice().sort(byTime)) {
     if (e.type === 'expense' && e.person === u) rows.push({e, text: `Paid: ${esc(e.note) || esc(e.category)}`, cr: e.amount});
-    else if (e.type === 'sale' && e.person === u) rows.push({e, text: `Sales cash kept${note(e)}`, dr: e.amount});
+    else if (e.type === 'sale' && SALES_IN_SPLIT && e.person === u) rows.push({e, text: `Sales cash kept${note(e)}`, dr: e.amount});
     else if (e.type === 'transfer' && e.person === u) rows.push({e, text: `Gave ${cap(e.to_person)}${note(e)}`, cr: e.amount});
     else if (e.type === 'transfer' && e.to_person === u) rows.push({e, text: `Received from ${cap(e.person)}${note(e)}`, dr: e.amount});
   }
   if (t.spent) rows.push({text: `1/${n} share of all expenses (${inr(t.spent)})`, dr: t.spent / n});
-  if (t.sold) rows.push({text: `1/${n} share of all sales (${inr(t.sold)})`, cr: t.sold / n});
+  if (t.splitSold) rows.push({text: `1/${n} share of all sales (${inr(t.splitSold)})`, cr: t.splitSold / n});
   return rows;
 }
 
 function ledgerView(t, u) {
   const n = USERS.length;
-  const cr = x => t.paid[x] + t.given[x] + t.sold / n, dr = x => t.spent / n + t.collected[x] + t.received[x];
+  const cr = x => t.paid[x] + t.given[x] + t.splitSold / n, dr = x => t.spent / n + t.collected[x] + t.received[x];
   const signed = v => Math.abs(v) < 1 ? '0' : (v > 0 ? '+' : '−') + inr(Math.abs(v));
   const tone = v => Math.abs(v) < 1 ? 'mute' : v > 0 ? 'green' : 'red';
   const amt = v => v ? inr(v) : '';
@@ -527,6 +532,17 @@ function planWhyCard(t, u) {
       : `<div class="row"><div class="l"><b>${cap(p.from)} → ${cap(p.to)} (advance top-up)</b><small>${cap(p.from)}'s advance did not cover ${cap(p.from)}'s share. ${cap(p.to)} pays the extra in the steps above, so ${cap(p.from)} gives it back to ${cap(p.to)}.</small></div>
         <div class="r"><b>${inr(p.amount)}</b><button class="mini paid" data-from="${p.from}" data-to="${p.to}" data-amount="${p.amount}">Paid ✓</button></div></div>`).join('')}
     <small class="mute">Updates by itself the moment anyone adds an expense, a sale or taps "Paid ✓", on any phone.</small>
+  </div>`;
+}
+
+// Top of the Sales tab: whether sales count in the split, and how much sales cash each partner holds.
+function salesNote(t) {
+  if (SALES_IN_SPLIT) return '';
+  const cash = USERS.map(u => [u, t.sal.filter(e => e.person === u).reduce((a, e) => a + e.amount, 0)]).filter(x => x[1] > 0);
+  return `<div class="card" style="border-left:5px solid var(--gold)"><h2>🧨 Sales are kept separate</h2>
+    <small class="mute">Sales do not change anyone's share or who pays whom. Only expenses are split for now. Sales cash is sorted out after Diwali.</small>
+    ${cash.map(([u, v]) => `<div class="line"><span>Sales cash with ${cap(u)}</span><b>${inr(v)}</b></div>`).join('')}
+    ${cash.length ? `<div class="line total"><span>Total sales</span><span class="green">${inr(t.sold)}</span></div>` : ''}
   </div>`;
 }
 
