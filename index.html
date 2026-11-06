@@ -287,6 +287,23 @@ function advanceCards(t) {
   }).join('');
 }
 
+// Plain totals for the logged-in partner: what they paid in all, against their 1/6 share.
+function myMoneyCard(t, u) {
+  const n = USERS.length, [txt, cls] = statusText(t.bal[u], u);
+  const line = (label, v, show = v >= 1) => show ? `<div class="line"><span>${label}</span><b>${inr(v)}</b></div>` : '';
+  return `<div class="card"><h2>💰 Your money, ${cap(u)}</h2>
+    ${line('Shop expenses you paid', t.paid[u], true)}
+    ${line('Money you gave partners', t.given[u])}
+    <div class="line total"><span>Total you paid</span><span class="green">${inr(t.paid[u] + t.given[u])}</span></div>
+    ${line('Money you received from partners', t.received[u])}
+    ${line('Sales cash with you', t.collected[u])}
+    <div class="line" style="margin-top:8px"><span>Total shop expenses</span><b>${inr(t.spent)}</b></div>
+    ${line(`Total sales`, t.sold)}
+    <div class="line"><span>${t.share >= 0 ? `Your 1/${n} share of cost${t.sold ? ' (expenses − sales)' : ''}` : `Your 1/${n} share of profit`}</span><b>${inr(Math.abs(t.share))}</b></div>
+    <div class="line total"><span>Result</span><span class="${cls}">${txt}</span></div>
+  </div>`;
+}
+
 function summaryView(t) {
   const profit = t.sold - t.spent;
   const maxCat = t.cats.length ? t.cats[0][1] : 1;
@@ -300,6 +317,7 @@ function summaryView(t) {
     ${t.received[me] ? `<small class="mute">Already received ${inr(t.received[me])} from partners – counted.</small>` : ''}
     <div class="mute" style="margin-top:6px;font-size:13px">Tap for every transaction ›</div>
   </div>
+  ${myMoneyCard(t, me)}
   ${givenNotice(t)}
   <div class="grid">
     <div class="card"><h2>Spent till now</h2><div class="big red">${inr(t.spent)}</div></div>
