@@ -57,6 +57,7 @@
   .stat{margin-bottom:10px}
   .editing{background:#fef3c7;border:1px solid var(--gold);border-radius:10px;padding:10px;margin-bottom:10px;font-size:14px}
   .tag{display:inline-block;font-size:12px;border-radius:6px;padding:1px 6px;background:var(--line);color:var(--ink);font-weight:600}
+  .recap{border:2px dashed var(--green);border-radius:10px;padding:10px 12px;margin-top:14px;background:#f0fdf4;font-size:15px}
   .warn{color:var(--red);font-size:14px;font-weight:600;min-height:20px;margin-top:8px}
   .ourbox{border:1px dashed var(--secret);border-radius:10px;padding:6px 10px;margin-top:8px}
   .cartbar{position:fixed;left:0;right:0;bottom:62px;display:flex;justify-content:center;padding:0 12px;z-index:4}
@@ -108,6 +109,7 @@ const fmtDate = d => new Date(d + 'T00:00').toLocaleDateString('en-IN', {day:'nu
 const fmtTime = t => new Date(t).toLocaleTimeString('en-IN', {hour:'numeric', minute:'2-digit'});
 const $ = id => document.getElementById(id);
 
+let cartSeen = null; // hides the floating "See bill" bar while the bill itself is on screen
 let me = null, started = false, products = [], bills = [], logs = [], editing = null, setupError = '', view = 'bill', ch = null;
 let q = '', cat = '', billsDay = today(), stockFilter = '', editId = null, adding = false;
 let show = localStorage.getItem('show_our_prices') === '1';      // show cost + lowest prices on this phone
@@ -255,6 +257,9 @@ function renderCart() {
   const b = bill(), box = $('cart');
   $('bar').innerHTML = b.count ? `<button id="gobill">🧾 ${b.count} item${b.count > 1 ? 's' : ''} · ${inr(b.list)} · See bill ↓</button>` : '';
   if ($('gobill')) $('gobill').onclick = () => box.scrollIntoView({behavior: 'smooth'});
+  if (cartSeen) cartSeen.disconnect();
+  cartSeen = new IntersectionObserver(([e]) => { if ($('bar')) $('bar').style.display = e.isIntersecting ? 'none' : ''; });
+  cartSeen.observe(box);
   if (!b.items.length) { box.innerHTML = `<div class="card"><h2>🧾 Bill</h2><span class="mute">Tap "+ Add" on items above.</span></div>`; return; }
   box.innerHTML = `<div class="card">${editing ? `<div class="editing">✏️ Editing ${editing.status === 'paid' ? '<b>a PAID sale</b>' : 'an estimate'} from ${fmtDate(editing.date)} ${fmtTime(editing.created)}. ${editing.status === 'paid' ? 'Every change is recorded in the log. ' : ''}<button class="link" id="canceledit">Cancel edit</button></div>` : ''}<h2>🧾 Bill · ${b.count} item${b.count > 1 ? 's' : ''}</h2>
     ${b.items.map(({p, qty}) => `<div class="row"><div class="l"><b>${esc(p.name)}</b><small>${inr(p.price)} each</small>${qty > avail(p) ? `<small class="red" style="display:block">⚠ only ${Math.max(avail(p), 0)} left in stock</small>` : ''}<div style="margin-top:4px">${qtyCtl(p.id, qty)}</div></div>
@@ -278,6 +283,7 @@ function renderCart() {
     <select id="coll">${USERS.map(u => `<option value="${u}" ${u===(collector || me)?'selected':''}>${cap(u)}</option>`).join('')}</select>
     <label>${kind === 'free' ? 'Note (optional)' : 'Customer name / note (optional)'}</label>
     <input id="note" maxlength="100" value="${esc(note)}">
+    <div class="recap" id="recap"></div>
     ${kind === 'free' ? '' : '<button class="btn" id="saveest" style="background:#fff;color:var(--ink);border:1px solid #dccfbe"></button>'}
     <button class="btn green" id="save"></button>
     ${kind === 'free' ? '' : '<small class="mute" style="display:block;margin-top:6px">Only a <b>paid</b> bill counts as a sale and takes stock. An estimate waits in 📋 Bills until the customer pays.</small>'}
@@ -286,10 +292,28 @@ function renderCart() {
   check();
 }
 
+// "Check before saving": everything chosen above, repeated right above the Save buttons.
+function recap() {
+  const box = $('recap');
+  if (!box) return;
+  const b = bill(), who = cap(collector || me);
+  box.innerHTML = `<b>✔ Check before saving</b>
+    ${b.items.map(({p, qty}) => `<div class="line"><span>${esc(p.name)} × ${qty}</span><span>${inr(p.price * qty)}</span></div>`).join('')}
+    <div class="line total"><span>${b.count} item${b.count > 1 ? 's' : ''} at customer price</span><span>${inr(b.list)}</span></div>
+    ${kind === 'free'
+      ? `<div class="line"><span>🎁 FREE – given to</span><b>${esc(givenTo.trim()) || '<span class="red">not written yet</span>'}</b></div>
+        <div class="line"><span>Given by</span><b>${who}</b></div>`
+      : `<div class="line"><span>Customer pays (${pick === 'other' ? 'Other amount' : b.levels[pick].name})</span><b class="green" style="font-size:20px">${inr(b.amount)}</b></div>
+        ${b.amount && b.list > b.amount ? `<div class="line"><span>Discount</span><span>${inr(b.list - b.amount)}</span></div>` : ''}
+        <div class="line"><span>Paid by</span><b>${payMode === 'upi' ? '📱 UPI' : '💵 Cash'} → ${who}</b></div>`}
+    ${note.trim() ? `<div class="line"><span>Note</span><span>${esc(note.trim())}</span></div>` : ''}`;
+}
+
 // Validate the chosen amount without redrawing (keeps the keyboard open while typing).
 function check() {
   const b = bill(), save = $('save');
   if (!save) return true;
+  recap();
   let msg = '';
   if (kind === 'free') {
     msg = givenTo.trim() ? '' : 'Write who it is given to.';
@@ -617,13 +641,13 @@ app.addEventListener('input', e => {
     if (pick !== 'other') { pick = 'other'; app.querySelectorAll('.lvl').forEach(x => x.classList.toggle('on', x.dataset.lvl === 'other')); }
     check();
   }
-  else if (t.id === 'note') note = t.value;
+  else if (t.id === 'note') { note = t.value; recap(); }
   else if (t.id === 'givento') { givenTo = t.value; check(); }
 });
 app.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'cat') { cat = t.value; renderList(); }
-  else if (t.id === 'coll') collector = t.value;
+  else if (t.id === 'coll') { collector = t.value; recap(); }
   else if (t.id === 'day') { billsDay = t.value; renderBody(); }
   else if (t.id === 'sf') { stockFilter = t.value; renderStock(); }
   else if (t.dataset.qty) setQty(t.dataset.qty, t.value);
