@@ -42,7 +42,15 @@
   .line{display:flex;justify-content:space-between;padding:4px 0}
   .line.total{border-top:1px solid var(--line);margin-top:6px;padding-top:8px;font-weight:700}
   nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
-  nav button{flex:1;background:none;border:0;padding:12px 4px;font-size:13px;color:var(--mute)}
+  .cd{width:100%;border-collapse:collapse;font-size:14px}
+  .cd th{font-size:12px;color:var(--mute);font-weight:600;text-align:right;padding:6px 4px;border-bottom:1px solid var(--line)}
+  .cd td{padding:8px 4px;border-top:1px solid var(--line);text-align:right;white-space:nowrap;vertical-align:top}
+  .cd th:first-child,.cd td:first-child{text-align:left}
+  .cd td:first-child{white-space:normal;overflow-wrap:anywhere}
+  .cd td small{display:block;color:var(--mute);font-size:12px}
+  .cd tr.tot td{font-weight:700;border-top:2px solid var(--ink)}
+  .cd tr.sel td{background:#fff3d6}
+  nav button{flex:1;background:none;border:0;padding:12px 2px;font-size:12px;color:var(--mute)}
   nav button b{display:block;font-size:20px;font-weight:400}
   nav button.on{color:var(--red);font-weight:700}
   .login{max-width:360px;margin:12vh auto;padding:0 16px;text-align:center}
@@ -118,7 +126,7 @@ if (!DEMO) {
 }
 
 /* ---------- state + rendering ---------- */
-let me = null, entries = [], tab = 'summary', stmtFor = null, histFor = 'all', unsub = null, started = false;
+let me = null, entries = [], tab = 'summary', stmtFor = null, crFor = null, histFor = 'all', unsub = null, started = false;
 const app = document.getElementById('app');
 
 store.onAuth(u => {
@@ -224,18 +232,22 @@ function renderMain() {
   else if (tab === 'sale') body = formView('sale') + listView(t.sal, 'sale');
   else if (tab === 'settle') body = planCard(t) + historyCard(t) + formView('transfer');
   else if (tab === 'statement') body = statementView(t, stmtFor || me);
+  else if (tab === 'ledger') body = ledgerView(t, crFor || me) + planWhyCard(t, crFor || me) + historyCard(t);
 
-  const tabs = [['summary','📊','Summary'],['expense','💸','Expenses'],['sale','🧨','Sales'],['settle','🤝','Settle'],['statement','📒','Statement']];
+  const tabs = [['summary','📊','Summary'],['expense','💸','Expenses'],['sale','🧨','Sales'],['settle','🤝','Settle'],['statement','📒','Statement'],['ledger','⚖️','Cr / Dr']];
   app.innerHTML = `${DEMO ? '<div class="demo">DEMO MODE – data stays on this phone only</div>' : ''}
   <header><h1>🪔 Diwali Shop Ledger</h1><button id="out">${cap(me)} · Logout</button></header>
   <main>${body}</main>
   <nav>${tabs.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k?'on':''}"><b>${i}</b>${n}</button>`).join('')}</nav>`;
 
   document.getElementById('out').onclick = () => store.logout();
-  app.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.t; stmtFor = null; render(); window.scrollTo(0,0); });
+  app.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.t; stmtFor = crFor = null; render(); window.scrollTo(0,0); });
   app.querySelectorAll('[data-p]').forEach(r => r.onclick = () => { tab = 'statement'; stmtFor = r.dataset.p; render(); window.scrollTo(0,0); });
+  app.querySelectorAll('[data-cr]').forEach(r => r.onclick = () => { crFor = r.dataset.cr; render(); document.getElementById('book').scrollIntoView(); });
   const stmt = document.getElementById('stmt');
   if (stmt) stmt.onchange = () => { stmtFor = stmt.value; render(); };
+  const crsel = document.getElementById('crsel');
+  if (crsel) crsel.onchange = () => { crFor = crsel.value; render(); };
   const hist = document.getElementById('hist');
   if (hist) hist.onchange = () => { histFor = hist.value; render(); };
   const f = document.getElementById('f');
@@ -407,6 +419,96 @@ function statementView(t, u) {
       <div class="r"><b class="${r.effect >= 0 ? 'green' : 'red'}">${sign(r.effect)}</b><br><small>${runText(r.run)}</small></div></div>`).join('')
       : '<div class="mute">Nothing yet</div>'}
     ${rows.length ? `<div class="line total"><span>Final</span><span class="${cls}">${txt}</span></div>` : ''}
+  </div>`;
+}
+
+/*
+  Credit / debit book for one partner, like a bank passbook.
+    Credit = money the partner put in: expenses paid, money given to partners, 1/6 of sales.
+    Debit  = their 1/6 of expenses, plus money they already hold: sales cash kept, money received.
+  Credit − debit is exactly bal[u] from totals().
+*/
+function ledgerRows(t, u) {
+  const n = USERS.length, rows = [];
+  const byTime = (a, b) => a.date.localeCompare(b.date) || new Date(a.created) - new Date(b.created);
+  const note = e => e.note ? ' – ' + esc(e.note) : '';
+  for (const e of entries.slice().sort(byTime)) {
+    if (e.type === 'expense' && e.person === u) rows.push({e, text: `Paid: ${esc(e.note) || esc(e.category)}`, cr: e.amount});
+    else if (e.type === 'sale' && e.person === u) rows.push({e, text: `Sales cash kept${note(e)}`, dr: e.amount});
+    else if (e.type === 'transfer' && e.person === u) rows.push({e, text: `Gave ${cap(e.to_person)}${note(e)}`, cr: e.amount});
+    else if (e.type === 'transfer' && e.to_person === u) rows.push({e, text: `Received from ${cap(e.person)}${note(e)}`, dr: e.amount});
+  }
+  if (t.spent) rows.push({text: `1/${n} share of all expenses (${inr(t.spent)})`, dr: t.spent / n});
+  if (t.sold) rows.push({text: `1/${n} share of all sales (${inr(t.sold)})`, cr: t.sold / n});
+  return rows;
+}
+
+function ledgerView(t, u) {
+  const n = USERS.length;
+  const cr = x => t.paid[x] + t.given[x] + t.sold / n, dr = x => t.spent / n + t.collected[x] + t.received[x];
+  const signed = v => Math.abs(v) < 1 ? '0' : (v > 0 ? '+' : '−') + inr(Math.abs(v));
+  const tone = v => Math.abs(v) < 1 ? 'mute' : v > 0 ? 'green' : 'red';
+  const amt = v => v ? inr(v) : '';
+  const [txt, cls] = statusText(t.bal[u], u);
+  const legs = t.plan.filter(p => p.from === u || p.to === u);
+  return `<div class="card"><h2>Everyone – credit & debit</h2>
+    <table class="cd"><tr><th>Partner</th><th>Credit</th><th>Debit</th><th>Balance</th></tr>
+    ${USERS.map(x => `<tr class="tap${x === u ? ' sel' : ''}" data-cr="${x}"><td><b>${cap(x)}</b></td>
+      <td>${inr(cr(x))}</td><td>${inr(dr(x))}</td><td class="${tone(t.bal[x])}"><b>${signed(t.bal[x])}</b></td></tr>`).join('')}
+    </table>
+    <small class="mute">Credit = money put in. Debit = 1/${n} share of expenses + money already taken. Balance = Credit − Debit: <b class="green">+</b> gets back, <b class="red">−</b> has to pay. Tap a name to see every line.</small>
+  </div>
+
+  <div class="card ${u === me ? 'you' : ''}" id="book">
+    <label style="margin-top:0">Credit / debit for</label>
+    <select id="crsel" style="margin-bottom:8px">${USERS.map(x => `<option value="${x}" ${x===u?'selected':''}>${cap(x)}${x===me?' (you)':''}</option>`).join('')}</select>
+    <table class="cd"><tr><th>Details</th><th>Credit</th><th>Debit</th></tr>
+    ${ledgerRows(t, u).map(r => `<tr><td>${r.text}${r.e ? `<small>${fmtDate(r.e.date)}</small>` : ''}</td>
+      <td class="green">${amt(r.cr)}</td><td class="red">${amt(r.dr)}</td></tr>`).join('')}
+    <tr class="tot"><td>Total</td><td class="green">${inr(cr(u))}</td><td class="red">${inr(dr(u))}</td></tr>
+    </table>
+    <div class="line total"><span>Credit − Debit</span><span class="${cls}">${txt}</span></div>
+    ${legs.map(p => { const [lt, lc] = legText(p, u); return `<div class="line"><span>${lt}</span><b class="${lc === 'mute' ? 'green' : lc}">${inr(p.amount)}</b></div>`; }).join('')}
+  </div>`;
+}
+
+// "Who pays whom", worked out step by step from the balances, the same way settlePlan() does it.
+function planWhyCard(t, u) {
+  const eff = {...t.bal}, carried = {};
+  for (const [a, h] of Object.entries(ADVANCE_WITH)) { eff[h] += eff[a]; carried[h] = [a, eff[a]]; eff[a] = 0; }
+  const side = sign => USERS.filter(x => sign * eff[x] >= 1).sort((a, b) => sign * (eff[b] - eff[a]));
+  const who = (x, txt) => {
+    const c = carried[x], extra = c && Math.abs(c[1]) >= 1
+      ? `<small class="mute" style="display:block;font-size:12px">own ${inr(Math.abs(t.bal[x]))} ${(t.bal[x] < 0) === (c[1] < 0) ? '+' : '−'} ${cap(c[0])}'s ${inr(Math.abs(c[1]))} (${cap(c[0])}'s advance ${c[1] < 0 ? 'ran short' : 'left over'}, ${cap(x)} holds it)</small>` : '';
+    return `<div class="line"><span>${cap(x)}${extra}</span><b style="white-space:nowrap">${txt}</b></div>`;
+  };
+  // Walk the plan in whole rupees from the Step 1 figures; a leftover of ₹1–2 is just 1/6-share rounding.
+  const left = Object.fromEntries(USERS.map(x => [x, Math.round(Math.abs(eff[x]))]));
+  const after = (v, done, more) => Math.abs(v) <= 2 ? done + (v ? ` (₹${Math.abs(v)} is rounding)` : '') : more + inr(v);
+  const isAdv = p => p.advance || ADVANCE_WITH[p.from] === p.to;
+  const legs = t.plan.filter(p => !isAdv(p)).map(p => {
+    const pay = left[p.from], get = left[p.to];
+    left[p.from] -= p.amount; left[p.to] -= p.amount;
+    return {...p, pay, get, payAfter: left[p.from], getAfter: left[p.to]};
+  }), advLegs = t.plan.filter(isAdv);
+  return `<div class="card"><h2>Who pays whom – how it is worked out</h2>
+    <b>Step 1 · Who has to pay, who gets back</b>
+    <small class="mute" style="display:block">From the Balance column above.</small>
+    ${side(-1).map(x => who(x, `<span class="red">pays ${inr(-eff[x])}</span>`)).join('')}
+    ${side(1).map(x => who(x, `<span class="green">gets ${inr(eff[x])}</span>`)).join('')}
+    <b style="display:block;margin-top:12px">Step 2 · Match them up</b>
+    <small class="mute" style="display:block">The biggest payer pays the biggest receiver, then the next, until everyone is even. This gives the fewest payments.</small>
+    ${legs.length ? legs.map((p, i) => `<div class="row${p.from === u || p.to === u ? ' you' : ''}" style="${p.from === u || p.to === u ? 'border-radius:10px;padding:10px 8px' : ''}">
+      <div class="l"><b>${i + 1}. ${cap(p.from)} → ${cap(p.to)}</b>
+        <small>${cap(p.from)} still has ${inr(p.pay)} to pay, ${cap(p.to)} still to get ${inr(p.get)} → ${cap(p.from)} pays ${inr(p.amount)}${p.amount === Math.min(p.pay, p.get) ? ' (the smaller of the two)' : ''}.
+        After this: ${after(p.getAfter, `${cap(p.to)} fully paid`, `${cap(p.to)} still to get `)}, ${after(p.payAfter, `${cap(p.from)} done`, `${cap(p.from)} still has to pay `)}.</small></div>
+      <div class="r"><b>${inr(p.amount)}</b><button class="mini paid" data-from="${p.from}" data-to="${p.to}" data-amount="${p.amount}">Paid ✓</button></div></div>`).join('')
+      : '<div class="mute">Everyone is settled 🎉</div>'}
+    ${advLegs.map(p => p.advance
+      ? `<div class="row"><div class="l"><b>${cap(p.to)}'s advance left with ${cap(p.from)}</b><small>No payment – ${cap(p.from)} keeps it for ${cap(p.to)}'s future share</small></div><div class="r"><b class="green">${inr(p.amount)}</b></div></div>`
+      : `<div class="row"><div class="l"><b>${cap(p.from)} → ${cap(p.to)} (advance top-up)</b><small>${cap(p.from)}'s advance did not cover ${cap(p.from)}'s share. ${cap(p.to)} pays the extra in the steps above, so ${cap(p.from)} gives it back to ${cap(p.to)}.</small></div>
+        <div class="r"><b>${inr(p.amount)}</b><button class="mini paid" data-from="${p.from}" data-to="${p.to}" data-amount="${p.amount}">Paid ✓</button></div></div>`).join('')}
+    <small class="mute">Updates by itself the moment anyone adds an expense, a sale or taps "Paid ✓", on any phone.</small>
   </div>`;
 }
 
