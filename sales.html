@@ -83,10 +83,10 @@
 
   Prices per item:
     cost        – "Actual price" list, what we paid. Hidden unless "Show" is on.
-    floor_price – "Price Drop" list, the lowest we can ever sell at. Hidden unless "Show" is on.
-    price       – customer price, shown first.
-  A bill can be given at the customer price or 5 / 10 / 15 % off, or any other amount,
-  but never below the sum of floor prices (also enforced by the database).
+    floor_price – the lowest we can ever sell at; set equal to cost. Hidden unless "Show" is on.
+    price       – customer price = the "Price Drop" list price, shown to everyone.
+  The counter bargains and types the final amount ("Other amount"); it can never be
+  below the sum of floor prices (also enforced by the database).
   products.stock is the number left; the database takes bill items out of it (and puts them back
   if a bill is deleted), so the 📦 Stock tab is always current.
   A bill of kind 'free' is a give-away (local leaders, vendors…): ₹0, takes stock, records who got it.
@@ -98,7 +98,7 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const USERS = ['ajay','mahesh','babu','shiva','anil','sashi'];
 const DOMAIN = '@diwali-shop.app';
 const LOW = 5; // "running low" at or below this many left
-const LEVELS = [['Customer price', 0], ['5% off', 5], ['10% off', 10], ['15% off', 15]];
+const LEVELS = [['Customer price', 0]]; // add e.g. ['5% off', 5] to offer fixed discount buttons again
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const cap = s => s[0].toUpperCase() + s.slice(1);
@@ -229,7 +229,7 @@ function filtered() {
 }
 
 const qtyCtl = (id, n) => `<span class="qty"><button data-dec="${id}" aria-label="Less">−</button><input data-qty="${id}" type="number" inputmode="numeric" min="0" value="${n}"><button data-inc="${id}" aria-label="More">+</button></span>`;
-const ours = (floor, cost) => show ? `<span class="secret">lowest ${inr(floor)} · cost ${inr(cost)}</span>` : '';
+const ours = (floor, cost) => show ? `<span class="secret">our cost ${inr(cost)}${floor !== cost ? ` · lowest ${inr(floor)}` : ''}</span>` : '';
 
 const leftCls = n => n <= 0 ? 'red' : n <= LOW ? 'low' : 'mute';
 const leftTxt = n => n <= 0 ? (n < 0 ? `${n} left – recount` : 'finished') : `${n} left`;
@@ -265,7 +265,7 @@ function renderCart() {
     ${b.items.map(({p, qty}) => `<div class="row"><div class="l"><b>${esc(p.name)}</b><small>${inr(p.price)} each</small>${qty > avail(p) ? `<small class="red" style="display:block">⚠ only ${Math.max(avail(p), 0)} left in stock</small>` : ''}<div style="margin-top:4px">${qtyCtl(p.id, qty)}</div></div>
       <div class="r"><b>${inr(p.price * qty)}</b><button class="del" data-rm="${p.id}" aria-label="Remove">✕</button></div></div>`).join('')}
     <div class="line total"><span>Total at customer price</span><span>${inr(b.list)}</span></div>
-    ${show ? `<div class="ourbox secret"><div class="line"><span>Lowest allowed</span><b>${inr(b.floor)}</b></div><div class="line"><span>Our cost</span><b>${inr(b.cost)}</b></div></div>` : ''}
+    ${show ? `<div class="ourbox secret"><div class="line"><span>Lowest allowed (our cost)</span><b>${inr(b.floor)}</b></div>${b.cost !== b.floor ? `<div class="line"><span>Our cost</span><b>${inr(b.cost)}</b></div>` : ''}</div>` : ''}
   </div>
 
   <div class="card">
@@ -323,7 +323,7 @@ function check() {
     return !msg;
   }
   if (pick === 'other' && !b.amount) msg = 'Type the amount the customer pays.';
-  else if (b.amount < b.floor) msg = `Too low! Lowest allowed for this bill is ${inr(b.floor)}.`;
+  else if (b.amount < b.floor) msg = `Too low – below our cost, not allowed.${show ? ` Lowest for this bill is ${inr(b.floor)}.` : ' (Tap 👁 Show to see the limit.)'}`;
   $('warn').textContent = msg;
   save.disabled = $('saveest').disabled = !!msg;
   save.textContent = `✅ Paid · Save sale ${inr(b.amount)}`;
@@ -430,15 +430,14 @@ function stockSummary() {
     <div class="line"><span>Running low (${LOW} or less)</span><b class="low">${products.filter(p => p.stock > 0 && p.stock <= LOW).length} items</b></div>
     <div class="line"><span>Finished</span><b class="red">${products.filter(p => p.stock <= 0).length} items</b></div>
     <div class="line"><span>Worth at customer price</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.price))}</b></div>
-    ${show ? `<div class="ourbox secret"><div class="line"><span>Worth at lowest price</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.floor_price))}</b></div><div class="line"><span>Worth at our cost</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.cost))}</b></div></div>` : ''}
+    ${show ? `<div class="ourbox secret"><div class="line"><span>Worth at our cost</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.cost))}</b></div></div>` : ''}
     <small class="mute">Every paid bill and give-away takes its items out of stock by itself (estimates don't). Tap "Edit" after a recount or when new stock comes in.</small>
   </div>
   ${addItemCard()}`;
 }
 
 // Items missing from the price list (e.g. bought later) are added here.
-// Customer price left empty = lowest + 50%, rounded up to ₹10, like the rest of the list.
-const autoPrice = floor => Math.ceil(floor * 1.5 / 10) * 10;
+// Like the rest of the list: customer price = Price Drop price, lowest allowed = our cost.
 function addItemCard() {
   if (!adding) return `<button class="btn" id="addopen" style="margin:0 0 14px">➕ Add new item</button>`;
   const cats = [...new Set(products.map(p => p.category))];
@@ -447,12 +446,11 @@ function addItemCard() {
     <label>Type</label><select name="category">${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select>
     <label>Sold per</label><select name="unit"><option>Box</option><option>Pkt</option><option>Pcs</option></select>
     <div class="grid">
-      <div><label>Our cost ₹ (actual)</label><input name="cost" type="number" inputmode="numeric" min="0" required></div>
-      <div><label>Lowest price ₹</label><input name="floor_price" type="number" inputmode="numeric" min="1" required></div>
-      <div><label>Customer price ₹</label><input name="price" type="number" inputmode="numeric" min="1" placeholder="auto"></div>
+      <div><label>Customer price ₹ (Price Drop)</label><input name="price" type="number" inputmode="numeric" min="1" required></div>
+      <div><label>Our cost ₹ (actual)</label><input name="cost" type="number" inputmode="numeric" min="1" required></div>
       <div><label>Stock (how many)</label><input name="stock" type="number" inputmode="numeric" min="0" value="0"></div>
     </div>
-    <small class="mute">Leave customer price empty to use lowest + 50% (rounded up to ₹10).</small>
+    <small class="mute">The app never lets a bill go below our cost.</small>
     <div class="warn" id="addwarn"></div>
     <button class="btn green">Save item</button>
     <button type="button" class="link" id="addclose">Cancel</button>
@@ -461,8 +459,8 @@ function addItemCard() {
 
 async function saveItem(f) {
   const d = Object.fromEntries(new FormData(f));
-  const floor = Number(d.floor_price), price = d.price ? Number(d.price) : autoPrice(floor);
-  if (price < floor) return $('addwarn').textContent = 'Customer price cannot be less than the lowest price.';
+  const floor = Number(d.cost), price = Number(d.price);
+  if (price < floor) return $('addwarn').textContent = 'Customer price cannot be less than our cost.';
   if (products.some(p => p.name.toLowerCase() === d.name.trim().toLowerCase())) return $('addwarn').textContent = 'This item is already in the list.';
   f.querySelector('button').disabled = true;
   const {error} = await sb.from('products').insert({
