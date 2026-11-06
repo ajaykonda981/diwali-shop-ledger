@@ -49,6 +49,14 @@
   .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
   .mini{border:1px solid #dccfbe;color:var(--ink);background:#fff;border-radius:8px;padding:4px 10px;font-size:13px;margin-top:4px}
   .low{color:#b45309}
+  .switch{display:flex;gap:6px;max-width:640px;margin:10px auto 0;padding:0 16px}
+  .switch a{flex:1;text-align:center;padding:9px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;font-weight:600;font-size:15px}
+  .switch a.on{background:var(--red);color:#fff;border-color:var(--red)}
+  .bar{height:8px;border-radius:4px;background:var(--line);margin-top:4px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--gold)}
+  .stat{margin-bottom:10px}
+  .editing{background:#fef3c7;border:1px solid var(--gold);border-radius:10px;padding:10px;margin-bottom:10px;font-size:14px}
+  .tag{display:inline-block;font-size:12px;border-radius:6px;padding:1px 6px;background:var(--line);color:var(--ink);font-weight:600}
   .warn{color:var(--red);font-size:14px;font-weight:600;min-height:20px;margin-top:8px}
   .ourbox{border:1px dashed var(--secret);border-radius:10px;padding:6px 10px;margin-top:8px}
   .cartbar{position:fixed;left:0;right:0;bottom:62px;display:flex;justify-content:center;padding:0 12px;z-index:4}
@@ -80,6 +88,9 @@
   but never below the sum of floor prices (also enforced by the database).
   products.stock is the number left; the database takes bill items out of it (and puts them back
   if a bill is deleted), so the 📦 Stock tab is always current.
+  A bill of kind 'free' is a give-away (local leaders, vendors…): ₹0, takes stock, records who got it.
+  A bill is an 'estimate' until the customer pays; only 'paid' bills count as sales and take stock.
+  Paid bills can still be edited (with a warning). The database logs every change in sales_log.
 */
 const SUPABASE_URL = "https://kkuzwlquzuhfzenlfigv.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrdXp3bHF1enVoZnplbmxmaWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxOTgwODEsImV4cCI6MjEwODc3NDA4MX0.TvfB27hzbYUIJVbnMc0VIXn3mPjEmMTQBKtMSc_cEXI";
@@ -97,11 +108,11 @@ const fmtDate = d => new Date(d + 'T00:00').toLocaleDateString('en-IN', {day:'nu
 const fmtTime = t => new Date(t).toLocaleTimeString('en-IN', {hour:'numeric', minute:'2-digit'});
 const $ = id => document.getElementById(id);
 
-let me = null, started = false, products = [], bills = [], setupError = '', view = 'bill', ch = null;
+let me = null, started = false, products = [], bills = [], logs = [], editing = null, setupError = '', view = 'bill', ch = null;
 let q = '', cat = '', billsDay = today(), stockFilter = '', editId = null, adding = false;
 let show = localStorage.getItem('show_our_prices') === '1';      // show cost + lowest prices on this phone
 let cart = JSON.parse(localStorage.getItem('cart') || '{}');      // product id → quantity
-let pick = 0, other = '', payMode = 'cash', collector = null, note = '';
+let pick = 0, other = '', payMode = 'cash', collector = null, note = '', kind = 'sale', givenTo = '';
 const app = $('app');
 
 sb.auth.onAuthStateChange((_e, s) => {
@@ -121,16 +132,24 @@ sb.auth.onAuthStateChange((_e, s) => {
 });
 
 async function load() {
-  const [p, b] = await Promise.all([
+  const [p, b, l] = await Promise.all([
     sb.from('products').select('*').eq('active', true).order('sno'),
-    sb.from('bills').select('*').order('created', {ascending: false})
+    sb.from('bills').select('*').order('created', {ascending: false}),
+    sb.from('sales_log').select('*').order('at', {ascending: false}).limit(40)
   ]);
   setupError = (p.error || b.error) ? (p.error || b.error).message : '';
+  logs = l.data || [];
   const num = r => ({...r, price: Number(r.price), floor_price: Number(r.floor_price), cost: Number(r.cost), stock: Number(r.stock)});
   products = (p.data || []).map(num);
   bills = (b.data || []).map(r => ({...r, amount: Number(r.amount), list_total: Number(r.list_total), floor_total: Number(r.floor_total), cost_total: Number(r.cost_total)}));
+  const eid = localStorage.getItem('editing'); // survive a refresh in the middle of an edit
+  editing = eid ? bills.find(x => x.id === eid) || null : null;
   if (me) renderBody();
 }
+
+const isSale = b => b.kind !== 'free' && b.status === 'paid';
+// Stock this bill may use: what is left, plus what the bill being edited already took.
+const avail = p => p.stock + (editing && editing.status === 'paid' ? editing.items.filter(i => i.product_id === p.id).reduce((a, i) => a + i.qty, 0) : 0);
 
 function render() { me ? renderMain() : renderLogin(); }
 
@@ -162,13 +181,14 @@ function renderLogin() {
 function renderMain() {
   app.innerHTML = `<header><h1>🧨 Sales Counter</h1><div>
       <button id="eye">${show ? '🙈 Hide' : '👁 Show'}</button><button id="out">${cap(me)} · Logout</button></div></header>
+    <div class="switch"><a href="./">📒 Expenses</a><a href="sales.html" class="on">🧨 Sales</a></div>
     <main id="body"></main>
     <div class="cartbar" id="bar"></div>
     <nav>
       <button data-v="bill" class="${view==='bill'?'on':''}"><b>🧾</b>New bill</button>
       <button data-v="bills" class="${view==='bills'?'on':''}"><b>📋</b>Bills</button>
+      <button data-v="insights" class="${view==='insights'?'on':''}"><b>📊</b>Insights</button>
       <button data-v="stock" class="${view==='stock'?'on':''}"><b>📦</b>Stock</button>
-      <a href="./"><b>📒</b>Ledger</a>
     </nav>`;
   $('out').onclick = () => sb.auth.signOut();
   $('eye').onclick = () => { show = !show; localStorage.setItem('show_our_prices', show ? '1' : '0'); renderMain(); };
@@ -184,7 +204,7 @@ function renderBody() {
     $('bar').innerHTML = '';
     return;
   }
-  if (view === 'bills') { body.innerHTML = billsView(); $('bar').innerHTML = ''; return; }
+  if (view === 'bills' || view === 'insights') { body.innerHTML = view === 'bills' ? billsView() : insightsView(); $('bar').innerHTML = ''; return; }
   const cats = [...new Set(products.map(p => p.category))];
   body.innerHTML = `${view === 'stock' ? stockSummary() : ''}<div class="card">
       <div class="filters">
@@ -236,25 +256,32 @@ function renderCart() {
   $('bar').innerHTML = b.count ? `<button id="gobill">🧾 ${b.count} item${b.count > 1 ? 's' : ''} · ${inr(b.list)} · See bill ↓</button>` : '';
   if ($('gobill')) $('gobill').onclick = () => box.scrollIntoView({behavior: 'smooth'});
   if (!b.items.length) { box.innerHTML = `<div class="card"><h2>🧾 Bill</h2><span class="mute">Tap "+ Add" on items above.</span></div>`; return; }
-  box.innerHTML = `<div class="card"><h2>🧾 Bill · ${b.count} item${b.count > 1 ? 's' : ''}</h2>
-    ${b.items.map(({p, qty}) => `<div class="row"><div class="l"><b>${esc(p.name)}</b><small>${inr(p.price)} each</small>${qty > p.stock ? `<small class="red" style="display:block">⚠ only ${Math.max(p.stock, 0)} left in stock</small>` : ''}<div style="margin-top:4px">${qtyCtl(p.id, qty)}</div></div>
+  box.innerHTML = `<div class="card">${editing ? `<div class="editing">✏️ Editing ${editing.status === 'paid' ? '<b>a PAID sale</b>' : 'an estimate'} from ${fmtDate(editing.date)} ${fmtTime(editing.created)}. ${editing.status === 'paid' ? 'Every change is recorded in the log. ' : ''}<button class="link" id="canceledit">Cancel edit</button></div>` : ''}<h2>🧾 Bill · ${b.count} item${b.count > 1 ? 's' : ''}</h2>
+    ${b.items.map(({p, qty}) => `<div class="row"><div class="l"><b>${esc(p.name)}</b><small>${inr(p.price)} each</small>${qty > avail(p) ? `<small class="red" style="display:block">⚠ only ${Math.max(avail(p), 0)} left in stock</small>` : ''}<div style="margin-top:4px">${qtyCtl(p.id, qty)}</div></div>
       <div class="r"><b>${inr(p.price * qty)}</b><button class="del" data-rm="${p.id}" aria-label="Remove">✕</button></div></div>`).join('')}
     <div class="line total"><span>Total at customer price</span><span>${inr(b.list)}</span></div>
     ${show ? `<div class="ourbox secret"><div class="line"><span>Lowest allowed</span><b>${inr(b.floor)}</b></div><div class="line"><span>Our cost</span><b>${inr(b.cost)}</b></div></div>` : ''}
   </div>
 
-  <div class="card"><h2>Customer pays</h2>
+  <div class="card">
+    <div class="seg" style="margin-bottom:10px"><button data-kind="sale" class="${kind==='sale'?'on':''}">💰 Sale</button><button data-kind="free" class="${kind==='free'?'on':''}">🎁 Free give-away</button></div>
+    ${kind === 'free' ? `<small class="mute">For crackers given free (local leaders, shop vendors…). No money is collected, but stock goes down and it is recorded.</small>
+    <label>Given to (name / who)</label><input id="givento" maxlength="100" value="${esc(givenTo)}" placeholder="e.g. Ward member Ramesh, Tea shop vendor">
+    <div class="warn" id="warn"></div>
+    <label>Given by</label>` : `<h2>Customer pays</h2>
     ${b.levels.map((l, i) => `<div class="lvl${pick === i ? ' on' : ''}" data-lvl="${i}"><span><b>${l.name}</b>${l.stopped ? '<br><small class="mute">stopped at the lowest allowed</small>' : ''}</span><b>${inr(l.amount)}</b></div>`).join('')}
     <div class="lvl${pick === 'other' ? ' on' : ''}" data-lvl="other"><b>Other amount</b><input id="other" type="number" inputmode="numeric" placeholder="₹" value="${esc(other)}"></div>
     <div class="warn" id="warn"></div>
     <label>Paid by</label>
     <div class="seg"><button data-pay="cash" class="${payMode==='cash'?'on':''}">💵 Cash</button><button data-pay="upi" class="${payMode==='upi'?'on':''}">📱 UPI</button></div>
-    <label>Money collected by</label>
+    <label>Money collected by</label>`}
     <select id="coll">${USERS.map(u => `<option value="${u}" ${u===(collector || me)?'selected':''}>${cap(u)}</option>`).join('')}</select>
-    <label>Customer name / note (optional)</label>
+    <label>${kind === 'free' ? 'Note (optional)' : 'Customer name / note (optional)'}</label>
     <input id="note" maxlength="100" value="${esc(note)}">
+    ${kind === 'free' ? '' : '<button class="btn" id="saveest" style="background:#fff;color:var(--ink);border:1px solid #dccfbe"></button>'}
     <button class="btn green" id="save"></button>
-    <button class="link" id="clear">Clear bill</button>
+    ${kind === 'free' ? '' : '<small class="mute" style="display:block;margin-top:6px">Only a <b>paid</b> bill counts as a sale and takes stock. An estimate waits in 📋 Bills until the customer pays.</small>'}
+    ${editing ? '' : '<button class="link" id="clear">Clear bill</button>'}
   </div>`;
   check();
 }
@@ -264,11 +291,19 @@ function check() {
   const b = bill(), save = $('save');
   if (!save) return true;
   let msg = '';
+  if (kind === 'free') {
+    msg = givenTo.trim() ? '' : 'Write who it is given to.';
+    $('warn').textContent = msg;
+    save.disabled = !!msg;
+    save.textContent = `Save give-away · worth ${inr(b.list)}`;
+    return !msg;
+  }
   if (pick === 'other' && !b.amount) msg = 'Type the amount the customer pays.';
   else if (b.amount < b.floor) msg = `Too low! Lowest allowed for this bill is ${inr(b.floor)}.`;
   $('warn').textContent = msg;
-  save.disabled = !!msg;
-  save.textContent = `Save bill · ${inr(b.amount)}`;
+  save.disabled = $('saveest').disabled = !!msg;
+  save.textContent = `✅ Paid · Save sale ${inr(b.amount)}`;
+  $('saveest').textContent = '💾 Save as estimate (not paid yet)';
   return !msg;
 }
 
@@ -280,21 +315,73 @@ function setQty(id, n) {
   renderCart();
 }
 
-async function saveBill() {
+async function saveBill(status) {
   if (!check()) return;
-  const b = bill();
+  const b = bill(), free = kind === 'free';
+  if (free) status = 'paid';
+  if (editing && editing.status === 'paid' && !confirm('This sale is already PAID.\nSave the changes? They will be recorded in the log.')) return;
+  const nowPaid = status === 'paid' && (!editing || editing.status !== 'paid');
+  const row = {
+    kind, status, given_to: free ? givenTo.trim() : null,
+    items: b.items.map(({p, qty}) => ({product_id: p.id, name: p.name, category: p.category, unit: p.unit, qty, price: p.price, floor_price: p.floor_price, cost: p.cost})),
+    list_total: b.list, floor_total: b.floor, cost_total: b.cost, amount: free ? 0 : b.amount,
+    level: free ? 'Free' : pick === 'other' ? 'Other amount' : b.levels[pick].name,
+    pay_mode: free ? 'cash' : payMode, collected_by: collector || me, note: note.trim() || null,
+    date: nowPaid || !editing ? today() : editing.date,
+    paid_at: status === 'paid' ? (nowPaid ? new Date().toISOString() : editing.paid_at) : null
+  };
   $('save').disabled = true;
-  const {error} = await sb.from('bills').insert({
-    items: b.items.map(({p, qty}) => ({product_id: p.id, name: p.name, unit: p.unit, qty, price: p.price, floor_price: p.floor_price, cost: p.cost})),
-    list_total: b.list, floor_total: b.floor, cost_total: b.cost, amount: b.amount,
-    level: pick === 'other' ? 'Other amount' : b.levels[pick].name,
-    pay_mode: payMode, collected_by: collector || me, note: note.trim() || null, date: today(), added_by: me
-  });
+  const {error} = editing
+    ? await sb.from('bills').update(row).eq('id', editing.id)
+    : await sb.from('bills').insert({...row, added_by: me});
   if (error) { alert('Could not save: ' + error.message); $('save').disabled = false; return; }
-  cart = {}; localStorage.setItem('cart', '{}');
-  pick = 0; other = ''; note = '';
-  toast(`Bill saved ✓ ${inr(b.amount)}`);
+  toast(editing ? 'Changes saved ✓' : free ? `Give-away saved ✓ worth ${inr(b.list)}` : status === 'paid' ? `Sale saved ✓ ${inr(b.amount)}` : 'Estimate saved – counts as a sale only when paid');
+  resetBill();
   q = ''; renderBody(); window.scrollTo(0, 0);
+  load();
+}
+
+function resetBill() {
+  cart = {}; localStorage.setItem('cart', '{}');
+  pick = 0; other = ''; note = ''; kind = 'sale'; givenTo = ''; payMode = 'cash'; collector = null;
+  editing = null; localStorage.removeItem('editing');
+}
+
+// Load a saved bill back into the bill screen.
+function editBill(id) {
+  const b = bills.find(x => x.id === id);
+  if (!b) return;
+  if (b.status === 'paid' && !confirm('This is already done (paid / given).\nEdit it anyway? Every change is recorded in the log.')) return;
+  resetBill();
+  editing = b; localStorage.setItem('editing', b.id);
+  for (const i of b.items) if (products.some(p => p.id === i.product_id)) cart[i.product_id] = (cart[i.product_id] || 0) + i.qty;
+  localStorage.setItem('cart', JSON.stringify(cart));
+  kind = b.kind; givenTo = b.given_to || ''; payMode = b.pay_mode; collector = b.collected_by; note = b.note || '';
+  const i = bill().levels.findIndex(l => l.amount === b.amount);
+  if (i >= 0) pick = i; else { pick = 'other'; other = String(b.amount); }
+  view = 'bill'; q = ''; renderMain();
+  $('cart').scrollIntoView();
+}
+
+async function markPaid(id) {
+  const b = bills.find(x => x.id === id);
+  if (!b || !confirm(`Customer paid ${inr(b.amount)} (${b.pay_mode === 'upi' ? 'UPI' : 'Cash'} to ${cap(b.collected_by)})?\nIt will count as a sale and stock goes down.`)) return;
+  const {error} = await sb.from('bills').update({status: 'paid', paid_at: new Date().toISOString(), date: today()}).eq('id', id);
+  if (error) return alert('Could not save: ' + error.message);
+  toast(`Paid ✓ ${inr(b.amount)}`);
+  load();
+}
+
+async function deleteBill(id) {
+  const b = bills.find(x => x.id === id);
+  if (!b) return;
+  const msg = b.status === 'paid'
+    ? `This ${b.kind === 'free' ? 'give-away' : 'sale'} is already done.\nDelete it? Stock goes back and it is recorded in the log.`
+    : 'Delete this estimate?';
+  if (!confirm(msg)) return;
+  const {error} = await sb.from('bills').delete().eq('id', id);
+  if (error) return alert(error.message);
+  if (editing && editing.id === id) resetBill();
   load();
 }
 
@@ -306,9 +393,9 @@ function toast(msg) {
 }
 
 /* ---------- stock ---------- */
-function soldCounts() {
+function soldCounts(k = 'sale') {
   const n = {};
-  for (const b of bills) for (const i of b.items) n[i.product_id] = (n[i.product_id] || 0) + i.qty;
+  for (const b of bills) if (b.status === 'paid' && b.kind === k) for (const i of b.items) n[i.product_id] = (n[i.product_id] || 0) + i.qty;
   return n;
 }
 
@@ -320,7 +407,7 @@ function stockSummary() {
     <div class="line"><span>Finished</span><b class="red">${products.filter(p => p.stock <= 0).length} items</b></div>
     <div class="line"><span>Worth at customer price</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.price))}</b></div>
     ${show ? `<div class="ourbox secret"><div class="line"><span>Worth at lowest price</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.floor_price))}</b></div><div class="line"><span>Worth at our cost</span><b>${inr(sum(p => Math.max(p.stock, 0) * p.cost))}</b></div></div>` : ''}
-    <small class="mute">Every saved bill takes its items out of stock by itself. Tap "Edit" after a recount or when new stock comes in.</small>
+    <small class="mute">Every paid bill and give-away takes its items out of stock by itself (estimates don't). Tap "Edit" after a recount or when new stock comes in.</small>
   </div>
   ${addItemCard()}`;
 }
@@ -365,10 +452,10 @@ async function saveItem(f) {
 }
 
 function renderStock() {
-  const sold = soldCounts();
+  const sold = soldCounts(), free = soldCounts('free');
   const l = filtered().filter(p => !stockFilter || (stockFilter === 'out' ? p.stock <= 0 : p.stock <= LOW));
   $('plist').innerHTML = l.length ? l.map(p => `<div class="row">
-      <div class="l"><b>${esc(p.name)}</b><small>#${p.sno} · ${esc(p.unit)} · sold ${sold[p.id] || 0}</small></div>
+      <div class="l"><b>${esc(p.name)}</b><small>#${p.sno} · ${esc(p.unit)} · sold ${sold[p.id] || 0}${free[p.id] ? ` · free ${free[p.id]}` : ''}</small></div>
       <div class="r">${editId === p.id
         ? `<span class="qty"><input id="stk" type="number" inputmode="numeric" value="${p.stock}" style="width:80px"><button data-savestk="${p.id}" aria-label="Save">✓</button></span>`
         : `<b class="${leftCls(p.stock)}">${leftTxt(p.stock)}</b><br><button class="mini" data-edit="${p.id}">Edit</button>`}</div></div>`).join('')
@@ -386,19 +473,32 @@ async function saveStock(id) {
 }
 
 /* ---------- saved bills ---------- */
-function billsView() {
+const sumBy = (l, f) => l.reduce((a, b) => a + f(b), 0);
+const inDay = b => billsDay === 'all' || b.date === billsDay;
+const itemsText = b => b.items.map(i => `${esc(i.name)} ×${i.qty}`).join(', ');
+
+function dayPicker() {
   const days = [...new Set([today(), ...bills.map(b => b.date)])].sort().reverse();
-  const list = billsDay === 'all' ? bills : bills.filter(b => b.date === billsDay);
-  const sum = (l, f) => l.reduce((a, b) => a + f(b), 0);
-  const total = sum(list, b => b.amount), cash = sum(list.filter(b => b.pay_mode === 'cash'), b => b.amount);
-  const disc = sum(list, b => b.list_total - b.amount), cost = sum(list, b => b.cost_total);
-  const withWho = USERS.map(u => [u, sum(list.filter(b => b.pay_mode === 'cash' && b.collected_by === u), b => b.amount)]).filter(x => x[1] > 0);
-  return `<div class="card">
-      <select id="day">${days.map(d => `<option value="${d}" ${d===billsDay?'selected':''}>${d === today() ? 'Today' : fmtDate(d)}</option>`).join('')}
-        <option value="all" ${billsDay==='all'?'selected':''}>All days</option></select>
-    </div>
+  return `<div class="card"><select id="day">${days.map(d => `<option value="${d}" ${d===billsDay?'selected':''}>${d === today() ? 'Today' : fmtDate(d)}</option>`).join('')}
+    <option value="all" ${billsDay==='all'?'selected':''}>All days</option></select></div>`;
+}
+
+function billsView() {
+  const sales = bills.filter(b => isSale(b) && inDay(b)), free = bills.filter(b => b.kind === 'free' && inDay(b));
+  const est = bills.filter(b => b.status === 'estimate');
+  const total = sumBy(sales, b => b.amount), cash = sumBy(sales.filter(b => b.pay_mode === 'cash'), b => b.amount);
+  const disc = sumBy(sales, b => b.list_total - b.amount), cost = sumBy(sales, b => b.cost_total);
+  const withWho = USERS.map(u => [u, sumBy(sales.filter(b => b.pay_mode === 'cash' && b.collected_by === u), b => b.amount)]).filter(x => x[1] > 0);
+  const actions = b => `<button class="mini" data-editbill="${b.id}">Edit</button><button class="del" data-delbill="${b.id}" aria-label="Delete">✕</button>`;
+  return `${est.length ? `<div class="card" style="border-left:5px solid var(--gold)"><h2>⏳ Estimates – waiting for payment (${est.length})</h2>
+      <small class="mute">Not counted as sales and stock not taken until "Paid ✓".</small>
+      ${est.map(b => `<div class="row"><div class="l"><b>${inr(b.amount)} · ${b.pay_mode === 'upi' ? 'UPI' : 'Cash'} · ${cap(b.collected_by)}</b>
+          <small>${fmtDate(b.date)} ${fmtTime(b.created)} · ${itemsText(b)}${b.note ? ' · ' + esc(b.note) : ''}</small></div>
+        <div class="r"><button class="mini" data-paid="${b.id}" style="border-color:var(--green);color:var(--green)">Paid ✓</button><br>${actions(b)}</div></div>`).join('')}
+    </div>` : ''}
+    ${dayPicker()}
     <div class="grid">
-      <div class="card"><h2>Sales</h2><div class="big green">${inr(total)}</div><small class="mute">${list.length} bill${list.length === 1 ? '' : 's'}</small></div>
+      <div class="card"><h2>Sales (paid)</h2><div class="big green">${inr(total)}</div><small class="mute">${sales.length} bill${sales.length === 1 ? '' : 's'}</small></div>
       <div class="card"><h2>Discount given</h2><div class="big">${inr(disc)}</div><small class="mute">off customer price</small></div>
     </div>
     <div class="card"><h2>Money</h2>
@@ -407,22 +507,87 @@ function billsView() {
       <div class="line"><span>📱 UPI</span><b>${inr(total - cash)}</b></div>
       ${show ? `<div class="ourbox secret"><div class="line"><span>Our cost of these items</span><b>${inr(cost)}</b></div><div class="line"><span>Profit</span><b>${inr(total - cost)}</b></div></div>` : ''}
     </div>
-    <div class="card"><h2>Bills</h2>
-      ${list.length ? list.map(b => `<div class="row"><div class="l">
-          <b>${inr(b.amount)} · ${b.pay_mode === 'upi' ? 'UPI' : 'Cash'} · ${cap(b.collected_by)}</b>
-          <small>${billsDay === 'all' ? fmtDate(b.date) + ' ' : ''}${fmtTime(b.created)} · ${b.items.map(i => `${esc(i.name)} ×${i.qty}`).join(', ')}
+    ${free.length ? `<div class="card"><h2>🎁 Given free (${free.length}) · worth ${inr(sumBy(free, b => b.list_total))}${show ? ` · <span class="secret">cost ${inr(sumBy(free, b => b.cost_total))}</span>` : ''}</h2>
+      ${free.map(b => `<div class="row"><div class="l"><b>To ${esc(b.given_to)}</b>
+          <small>${billsDay === 'all' ? fmtDate(b.date) + ' ' : ''}${fmtTime(b.created)} · ${itemsText(b)} · given by ${cap(b.collected_by)}${b.note ? ' · ' + esc(b.note) : ''}</small></div>
+        <div class="r">${actions(b)}</div></div>`).join('')}
+    </div>` : ''}
+    <div class="card"><h2>Paid bills</h2>
+      ${sales.length ? sales.map(b => `<div class="row"><div class="l">
+          <b>${inr(b.amount)} · ${b.pay_mode === 'upi' ? 'UPI' : 'Cash'} · ${cap(b.collected_by)}${logs.some(l => l.ref === b.id && l.action === 'edited') ? ' <span class="tag">edited</span>' : ''}</b>
+          <small>${billsDay === 'all' ? fmtDate(b.date) + ' ' : ''}${fmtTime(b.paid_at || b.created)} · ${itemsText(b)}
           · ${esc(b.level)}${b.list_total > b.amount ? ` (${inr(b.list_total - b.amount)} off)` : ''}${b.note ? ' · ' + esc(b.note) : ''}${b.added_by && b.added_by !== b.collected_by ? ' · billed by ' + cap(b.added_by) : ''}</small></div>
-        <div class="r"><button class="del" data-delbill="${b.id}" aria-label="Delete">✕</button></div></div>`).join('')
-        : '<span class="mute">No bills yet</span>'}
-    </div>`;
+        <div class="r">${actions(b)}</div></div>`).join('')
+        : '<span class="mute">No paid bills yet</span>'}
+    </div>
+    ${logCard()}`;
+}
+
+// Recent changes, written by the database (sales_log) – nobody can skip or erase them from the app.
+function logCard() {
+  if (!logs.length) return '';
+  const text = l => {
+    const a = l.after || {}, b = l.before || {}, x = l.after || l.before || {};
+    if (l.what === 'item') return `${esc(x.name)}${l.action === 'stock changed' ? `: stock ${b.stock} → ${a.stock}` : l.action === 'item edited' ? `: price ${inr(b.price)} → ${inr(a.price)}, lowest ${inr(b.floor_price)} → ${inr(a.floor_price)}` : ''}`;
+    const amt = x.kind === 'free' ? `free to ${esc(x.given_to)}` : l.action === 'edited' && Number(b.amount) !== Number(a.amount) ? `${inr(b.amount)} → ${inr(a.amount)}` : inr(x.amount);
+    return `${amt} · ${(x.items || []).map(i => `${esc(i.name)} ×${i.qty}`).join(', ')}`;
+  };
+  return `<div class="card"><h2>🕘 Change log (latest ${logs.length})</h2>
+    ${logs.map(l => `<div class="row"><div class="l"><b>${cap(l.by_user || 'admin')} · ${esc(l.action)}</b>
+      <small>${fmtDate(l.at.slice(0, 10))} ${fmtTime(l.at)} · ${text(l)}</small></div></div>`).join('')}
+  </div>`;
+}
+
+/* ---------- insights ---------- */
+function insightsView() {
+  const sales = bills.filter(b => isSale(b) && inDay(b)), free = bills.filter(b => b.kind === 'free' && inDay(b));
+  const est = bills.filter(b => b.status === 'estimate');
+  const total = sumBy(sales, b => b.amount);
+  // Each item's share of its bill's final amount, by its customer-price value.
+  const byCat = {}, byItem = {}, add = (m, k, rev, qty, cost) => { const o = m[k] || (m[k] = {rev: 0, qty: 0, cost: 0}); o.rev += rev; o.qty += qty; o.cost += cost; };
+  for (const b of sales) {
+    const r = b.list_total ? b.amount / b.list_total : 0;
+    for (const i of b.items) {
+      const c = i.category || (products.find(p => p.id === i.product_id) || {}).category || 'Other';
+      add(byCat, c, i.price * i.qty * r, i.qty, i.cost * i.qty);
+      add(byItem, i.name, i.price * i.qty * r, i.qty, i.cost * i.qty);
+    }
+  }
+  const bars = (m, limit, unit = 'pcs') => {
+    const rows = Object.entries(m).sort((a, b) => b[1].rev - a[1].rev).slice(0, limit), max = rows.length ? rows[0][1].rev : 1;
+    return rows.length ? rows.map(([k, o]) => `<div class="stat"><div class="line"><span>${esc(k)} <small class="mute">· ${o.qty} ${unit}</small></span><b>${inr(o.rev)}</b></div>
+      <div class="bar"><i style="width:${max ? o.rev / max * 100 : 0}%"></i></div>${show ? `<small class="secret">profit ${inr(o.rev - o.cost)}</small>` : ''}</div>`).join('')
+      : '<span class="mute">No paid sales yet</span>';
+  };
+  const byDay = {}, byWho = {};
+  for (const b of bills.filter(isSale)) add(byDay, b.date, b.amount, 1, b.cost_total);
+  for (const b of sales) add(byWho, cap(b.collected_by) + (b.pay_mode === 'upi' ? ' (UPI)' : ' (cash)'), b.amount, 1, b.cost_total);
+  const dayRows = Object.entries(byDay).sort((a, b) => b[0].localeCompare(a[0])), dayMax = Math.max(1, ...dayRows.map(d => d[1].rev));
+  const cost = sumBy(sales, b => b.cost_total);
+  return `${dayPicker()}
+    <div class="grid">
+      <div class="card"><h2>Sales (paid)</h2><div class="big green">${inr(total)}</div><small class="mute">${sales.length} bills · avg ${inr(sales.length ? total / sales.length : 0)}</small></div>
+      <div class="card"><h2>Discount given</h2><div class="big">${inr(sumBy(sales, b => b.list_total - b.amount))}</div><small class="mute">off customer price</small></div>
+      <div class="card"><h2>⏳ Estimates</h2><div class="big">${inr(sumBy(est, b => b.amount))}</div><small class="mute">${est.length} waiting · not counted</small></div>
+      <div class="card"><h2>🎁 Given free</h2><div class="big">${inr(sumBy(free, b => b.list_total))}</div><small class="mute">${free.length} time${free.length === 1 ? '' : 's'} · at customer price</small></div>
+    </div>
+    ${show ? `<div class="card ourbox secret"><div class="line"><span>Our cost of items sold</span><b>${inr(cost)}</b></div><div class="line"><span>Profit on sales</span><b>${inr(total - cost)}</b></div><div class="line"><span>Cost of free give-aways</span><b>${inr(sumBy(free, b => b.cost_total))}</b></div></div>` : ''}
+    <div class="card"><h2>Sales by type</h2>${bars(byCat)}</div>
+    <div class="card"><h2>Top 10 items</h2>${bars(byItem, 10)}</div>
+    <div class="card"><h2>Who collected</h2>${bars(byWho, 99, 'bills')}</div>
+    <div class="card"><h2>Day by day (all days)</h2>
+      ${dayRows.length ? dayRows.map(([d, o]) => `<div class="stat"><div class="line"><span>${d === today() ? 'Today' : fmtDate(d)} <small class="mute">· ${o.qty} bills</small></span><b>${inr(o.rev)}</b></div><div class="bar"><i style="width:${o.rev / dayMax * 100}%"></i></div></div>`).join('') : '<span class="mute">No paid sales yet</span>'}
+    </div>
+    ${free.length ? `<div class="card"><h2>🎁 Given free – to whom</h2>${free.map(b => `<div class="line"><span>${esc(b.given_to)} <small class="mute">· ${itemsText(b)}</small></span><b>${inr(b.list_total)}</b></div>`).join('')}</div>` : ''}`;
 }
 
 /* ---------- one set of listeners for everything drawn above ---------- */
 app.addEventListener('click', e => {
-  const d = e.target.closest('[data-add],[data-inc],[data-dec],[data-rm],[data-lvl],[data-pay],[data-delbill],[data-edit],[data-savestk],#save,#clear,#addopen,#addclose');
+  const d = e.target.closest('[data-add],[data-inc],[data-dec],[data-rm],[data-lvl],[data-pay],[data-delbill],[data-editbill],[data-paid],[data-edit],[data-savestk],[data-kind],#save,#saveest,#clear,#canceledit,#addopen,#addclose');
   if (!d) return;
-  const {add, inc, dec, rm, lvl, pay, delbill, edit, savestk} = d.dataset;
-  if (d.id === 'addopen' || d.id === 'addclose') { adding = d.id === 'addopen'; renderBody(); if (adding) $('addform').scrollIntoView(); }
+  const {add, inc, dec, rm, lvl, pay, delbill, editbill, paid, edit, savestk} = d.dataset;
+  if (d.dataset.kind) { kind = d.dataset.kind; renderCart(); }
+  else if (d.id === 'addopen' || d.id === 'addclose') { adding = d.id === 'addopen'; renderBody(); if (adding) $('addform').scrollIntoView(); }
   else if (edit) { editId = Number(edit); renderStock(); }
   else if (savestk) saveStock(Number(savestk));
   else if (add) setQty(add, 1);
@@ -434,9 +599,13 @@ app.addEventListener('click', e => {
     else { pick = Number(lvl); renderCart(); }
   }
   else if (pay) { payMode = pay; renderCart(); }
-  else if (delbill) { if (confirm('Delete this bill?')) sb.from('bills').delete().eq('id', delbill).then(({error}) => error ? alert(error.message) : load()); }
-  else if (d.id === 'save') saveBill();
-  else if (d.id === 'clear') { if (confirm('Clear this bill?')) { cart = {}; localStorage.setItem('cart', '{}'); pick = 0; other = ''; renderList(); renderCart(); } }
+  else if (delbill) deleteBill(delbill);
+  else if (editbill) editBill(editbill);
+  else if (paid) markPaid(paid);
+  else if (d.id === 'save') saveBill('paid');
+  else if (d.id === 'saveest') saveBill('estimate');
+  else if (d.id === 'canceledit') { resetBill(); renderBody(); }
+  else if (d.id === 'clear') { if (confirm('Clear this bill?')) { resetBill(); renderList(); renderCart(); } }
 });
 app.addEventListener('submit', e => { if (e.target.id === 'addform') { e.preventDefault(); saveItem(e.target); } });
 app.addEventListener('keydown', e => { if (e.target.id === 'stk' && e.key === 'Enter') saveStock(editId); });
@@ -449,6 +618,7 @@ app.addEventListener('input', e => {
     check();
   }
   else if (t.id === 'note') note = t.value;
+  else if (t.id === 'givento') { givenTo = t.value; check(); }
 });
 app.addEventListener('change', e => {
   const t = e.target;

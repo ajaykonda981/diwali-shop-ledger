@@ -56,6 +56,9 @@
   .login{max-width:360px;margin:12vh auto;padding:0 16px;text-align:center}
   .login h1{color:var(--red)}
   .err{color:var(--red);font-size:14px;min-height:20px;margin-top:8px}
+  .switch{display:flex;gap:6px;max-width:640px;margin:10px auto 0;padding:0 16px}
+  .switch a{flex:1;text-align:center;padding:9px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;font-weight:600;font-size:15px}
+  .switch a.on{background:var(--red);color:#fff;border-color:var(--red)}
   .demo{background:#fef3c7;color:#92400e;font-size:12px;text-align:center;padding:4px}
 </style>
 </head>
@@ -241,6 +244,7 @@ function renderMain() {
   const tabs = [['summary','📊','Summary'],['expense','💸','Expenses'],['sale','🧨','Sales'],['settle','🤝','Settle'],['statement','📒','Statement'],['ledger','⚖️','Cr / Dr']];
   app.innerHTML = `${DEMO ? '<div class="demo">DEMO MODE – data stays on this phone only</div>' : ''}
   <header><h1>🪔 Diwali Shop Ledger</h1><button id="out">${cap(me)} · Logout</button></header>
+  <div class="switch"><a href="./" class="on">📒 Expenses</a><a href="sales.html">🧨 Sales</a></div>
   <main>${body}</main>
   <nav>${tabs.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k?'on':''}"><b>${i}</b>${n}</button>`).join('')}</nav>`;
 
